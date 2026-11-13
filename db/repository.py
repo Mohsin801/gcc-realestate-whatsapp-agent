@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Booking, ChatLog, Lead
+from db.models import Booking, ChatLog, Lead, Owner
 
 
 async def get_lead(session: AsyncSession, phone: str) -> Lead | None:
@@ -66,6 +66,54 @@ async def latest_booking(session: AsyncSession, lead_id: int) -> Booking | None:
     return await session.scalar(
         select(Booking).where(Booking.lead_id == lead_id).order_by(Booking.id.desc()).limit(1)
     )
+
+
+# --- owners -----------------------------------------------------------------------------------------
+async def get_owner(session: AsyncSession, owner_id: str) -> Owner | None:
+    return await session.get(Owner, owner_id)
+
+
+async def upsert_owner(session: AsyncSession, owner_id: str, **fields) -> Owner:
+    owner = await session.get(Owner, owner_id)
+    if owner is None:
+        owner = Owner(id=owner_id, **fields)
+        session.add(owner)
+    else:
+        for key, value in fields.items():
+            setattr(owner, key, value)
+    await session.commit()
+    return owner
+
+
+# --- bookings ---------------------------------------------------------------------------------------
+async def reserve_slot(session: AsyncSession, lead_id: int, owner_id: str, slot_iso: str) -> Booking | None:
+    """Insert a CONFIRMED booking row for the slot. Returns None if the owner's slot is already taken
+    (partial unique index ``uq_bookings_owner_slot_confirmed``), which makes this the booking lock."""
+    booking = Booking(lead_id=lead_id, owner_id=owner_id, slot_iso=slot_iso, status="CONFIRMED")
+    session.add(booking)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        return None
+    return booking
+
+
+async def confirmed_slots(session: AsyncSession, owner_id: str, from_iso: str) -> set[str]:
+    rows = await session.scalars(
+        select(Booking.slot_iso).where(
+            Booking.owner_id == owner_id, Booking.status == "CONFIRMED", Booking.slot_iso >= from_iso
+        )
+    )
+    return set(rows.all())
+
+
+async def get_booking(session: AsyncSession, booking_id: int) -> Booking | None:
+    return await session.get(Booking, booking_id)
+
+
+async def get_booking_by_event(session: AsyncSession, event_id: str) -> Booking | None:
+    return await session.scalar(select(Booking).where(Booking.google_event_id == event_id))
 
 
 async def log_message(

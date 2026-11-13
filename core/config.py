@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     token_encryption_key: str = ""  # Fernet key, encrypts the owner's refresh token at rest
+    google_oauth_scopes: list[str] = Field(default_factory=lambda: [
+        "https://www.googleapis.com/auth/calendar.events",  # create the meeting + add the lead as attendee
+        "https://www.googleapis.com/auth/calendar.freebusy",  # read busy times only (not event details)
+    ])
+    google_api_timeout_seconds: float = 10.0
+    # Protects /auth/google/start (connecting the owner's calendar). Empty = the endpoint is disabled.
+    admin_token: str = ""
 
     # --- Owner / scheduling ---
     default_owner_id: str = "default"

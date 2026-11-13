@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import sys
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -22,30 +23,40 @@ from agent.llm import build_llm  # noqa: E402
 from agent.runner import AgentService  # noqa: E402
 from agent.services import BookingResult  # noqa: E402
 from core.config import get_settings  # noqa: E402
+from core.timezones import lead_timezone  # noqa: E402
 from services.inbound import IncomingMessage  # noqa: E402
-
-PHONE = "971500000000"
+from tools.scheduling import WorkingHours, candidate_slots, format_slot, parse_hhmm, pick_slots, to_iso  # noqa: E402
 
 
 class DemoScheduler:
-    """Pretend calendar for trying the booking flow locally (Phase 3 replaces it with Google Calendar)."""
+    """Empty calendar inside the configured working hours, for trying the booking flow without Google.
+    Uses the real slot finder and label formatter (lead timezone from the phone country code)."""
 
-    LABELS = {"en": ["Tomorrow at 4:00 PM GST", "Thursday at 11:00 AM GST", "Friday at 2:30 PM GST"],
-              "ar": ["بكرة الساعة ٤:٠٠ العصر بتوقيت الخليج", "الخميس الساعة ١١:٠٠ الصبح بتوقيت الخليج",
-                     "الجمعة الساعة ٢:٣٠ الظهر بتوقيت الخليج"]}
+    def __init__(self, settings):
+        self.settings = settings
+        self.offered: list = []
 
-    def __init__(self):
-        self.offered = False
+    def _labels(self, phone, language):
+        tz = lead_timezone(phone, self.settings.owner_timezone)
+        now = datetime.now(UTC)
+        return [format_slot(s, tz, language, now) for s in self.offered]
 
     async def offer_slots(self, phone, country, language):
-        self.offered = True
-        return self.LABELS[language]
+        s = self.settings
+        hours = WorkingHours(s.owner_timezone, tuple(s.working_days), parse_hhmm(s.work_start), parse_hhmm(s.work_end))
+        duration = timedelta(minutes=s.slot_duration_minutes)
+        cands = candidate_slots(datetime.now(UTC), hours, duration, timedelta(minutes=s.min_notice_minutes),
+                                s.slot_search_days)
+        self.offered = pick_slots(cands, [], set(), duration=duration, count=s.slot_count,
+                                  per_day=s.slots_per_day, owner_tz=s.owner_timezone)
+        return self._labels(phone, language)
 
     async def offered_labels(self, phone, language):
-        return self.LABELS[language] if self.offered else []
+        return self._labels(phone, language)
 
     async def book(self, phone, lead_name, choice, language):
-        return BookingResult(ok=True, slot_iso="2026-11-16T12:00:00+00:00", slot_label=self.LABELS[language][choice - 1],
+        label = self._labels(phone, language)[choice - 1]
+        return BookingResult(ok=True, slot_iso=to_iso(self.offered[choice - 1]), slot_label=label,
                              meet_link="https://meet.google.com/demo-demo-demo")
 
     async def add_email(self, phone, email):
@@ -57,11 +68,13 @@ async def main() -> None:
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--slots", action="store_true", help="use a fake calendar to try booking")
     parser.add_argument("--name", default="Ahmed")
+    parser.add_argument("--phone", default="971500000000", help="lead number; its country code sets the timezone")
     args = parser.parse_args()
+    phone = args.phone
 
     settings = get_settings()
     llm = None if args.no_llm else build_llm(settings)
-    graph = build_graph(llm=llm, settings=settings, scheduler=DemoScheduler() if args.slots else None,
+    graph = build_graph(llm=llm, settings=settings, scheduler=DemoScheduler(settings) if args.slots else None,
                         checkpointer=InMemorySaver())
     agent = AgentService(graph)
     language = "en"
@@ -76,12 +89,12 @@ async def main() -> None:
         if text == "/quit":
             break
         if text == "/state":
-            values = (await graph.aget_state({"configurable": {"thread_id": PHONE}})).values
+            values = (await graph.aget_state({"configurable": {"thread_id": phone}})).values
             print({k: v for k, v in values.items() if k not in ("messages", "turn")})
             continue
         language = detect_language(text) or language
         start = time.perf_counter()
-        msg = IncomingMessage("cli", PHONE, args.name, "text", text, language, time.monotonic())
+        msg = IncomingMessage("cli", phone, args.name, "text", text, language, time.monotonic())
         replies = await agent(msg, language)
         elapsed = (time.perf_counter() - start) * 1000
         for r in replies:

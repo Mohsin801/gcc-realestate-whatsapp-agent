@@ -8,10 +8,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -83,11 +85,18 @@ class ChatLog(Base):
 
 class Booking(Base):
     __tablename__ = "bookings"
+    __table_args__ = (
+        # one confirmed booking per owner slot (migration 0002); also the reservation lock when booking
+        Index(
+            "uq_bookings_owner_slot_confirmed", "owner_id", "slot_iso", unique=True,
+            postgresql_where=text("status = 'CONFIRMED'"), sqlite_where=text("status = 'CONFIRMED'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
     lead_id: Mapped[int] = mapped_column(BigId, ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     owner_id: Mapped[str] = mapped_column(ForeignKey("owners.id"), index=True)
-    slot_iso: Mapped[str] = mapped_column(String(64))
+    slot_iso: Mapped[str] = mapped_column(String(64))  # UTC ISO, tools.scheduling.to_iso()
     google_event_id: Mapped[str | None] = mapped_column(String(255), unique=True)  # booking reference
     meet_link: Mapped[str | None] = mapped_column(String(512))
     lead_email: Mapped[str | None] = mapped_column(String(255))

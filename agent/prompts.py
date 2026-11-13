@@ -75,8 +75,10 @@ Current context:
 {context}"""
 
 
-def extraction_context(profile: dict, booking_status: str, offered: list[str]) -> str:
+def extraction_context(profile: dict, booking_status: str, offered: list[str], now_text: str = "") -> str:
     lines = [f"Known lead profile: {profile}", f"Booking status: {booking_status}"]
+    if now_text:
+        lines.append(f"Lead's local date and time now: {now_text}")
     if offered:
         lines.append("Slots currently offered: " + "; ".join(f"{i}. {s}" for i, s in enumerate(offered, 1)))
     return "\n".join(lines)

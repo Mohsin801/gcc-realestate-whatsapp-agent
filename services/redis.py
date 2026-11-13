@@ -39,3 +39,7 @@ async def save_offered_slots(redis: Redis, phone: str, slots_iso: list[str]) -> 
 async def load_offered_slots(redis: Redis, phone: str) -> list[str]:
     raw = await redis.get(f"offered:{phone}")
     return json.loads(raw) if raw else []
+
+
+async def clear_offered_slots(redis: Redis, phone: str) -> None:
+    await redis.delete(f"offered:{phone}")

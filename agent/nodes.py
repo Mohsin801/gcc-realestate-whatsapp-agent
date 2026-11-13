@@ -12,7 +12,9 @@ calendar/knowledge errors fall back to a handoff or deferral, so the lead always
 """
 import logging
 import re
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -37,6 +39,7 @@ from agent.prompts import EXTRACTION_SYSTEM, Extraction, extraction_context, rep
 from agent.services import BookingResult, Knowledge, Scheduler
 from agent.state import COUNTRIES, INTENTS, TIMELINES, compute_is_qualified
 from core.config import Settings
+from core.timezones import lead_timezone
 
 log = logging.getLogger(__name__)
 
@@ -116,7 +119,9 @@ class AgentNodes:
         extraction, source = self._fast_path(text, status, offered), "fast_path"
         if extraction is None and self.llm is not None:
             profile = {k: state.get(k) for k in QUALIFY_ORDER}
-            system = EXTRACTION_SYSTEM.replace("{context}", extraction_context(profile, status, offered))
+            tz = lead_timezone(state["phone_number"], self.settings.owner_timezone)
+            now_text = datetime.now(ZoneInfo(tz)).strftime("%A %d %B %Y, %H:%M") + f" ({tz})"
+            system = EXTRACTION_SYSTEM.replace("{context}", extraction_context(profile, status, offered, now_text))
             try:
                 extraction, source = await self.llm.extract(system, self._history(state), Extraction), "llm"
             except Exception:  # noqa: BLE001 - LLM down/slow/invalid: rules take over

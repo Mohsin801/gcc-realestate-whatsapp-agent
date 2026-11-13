@@ -2,19 +2,24 @@
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.graph import build_graph
 from agent.llm import LLMConfigError, build_llm
 from agent.runner import AgentService
-from api import health, whatsapp
+from api import auth_google, health, whatsapp
 from core.config import Settings, get_settings
+from core.crypto import TokenCipher
 from core.logging import setup_logging
 from db.session import dispose_engine, get_sessionmaker, init_engine
 from services.redis import create_redis
 from services.runtime import Runtime, set_runtime
 from services.whatsapp_client import WhatsAppClient
+from tools import calendar
+from tools.calendar import CalendarEngine, CalendarScheduler
+from tools.calendar_providers.google import GoogleOAuth
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +47,16 @@ def open_llm(settings: Settings):
         return None
 
 
+def open_cipher(settings: Settings) -> TokenCipher | None:
+    if not settings.token_encryption_key:
+        return None
+    try:
+        return TokenCipher(settings.token_encryption_key)
+    except ValueError:
+        log.exception("TOKEN_ENCRYPTION_KEY is not a valid Fernet key; calendar booking is disabled")
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -53,20 +68,35 @@ async def lifespan(app: FastAPI):
         phone_number_id=settings.whatsapp_phone_number_id,
         api_version=settings.whatsapp_api_version,
     )
+    google_http = httpx.AsyncClient(timeout=settings.google_api_timeout_seconds)
+    app.state.sessionmaker = get_sessionmaker()
+    app.state.google_oauth = GoogleOAuth(
+        google_http, settings.google_client_id, settings.google_client_secret, settings.google_oauth_scopes
+    )
+    calendar_engine = CalendarEngine(
+        settings, get_sessionmaker(), oauth=app.state.google_oauth, cipher=open_cipher(settings)
+    )
+    calendar.configure(calendar_engine)
     async with AsyncExitStack() as stack:
         checkpointer = await open_checkpointer(stack, settings)
-        graph = build_graph(llm=open_llm(settings), settings=settings, checkpointer=checkpointer)
+        graph = build_graph(
+            llm=open_llm(settings), settings=settings, checkpointer=checkpointer,
+            scheduler=CalendarScheduler(calendar_engine, app.state.redis),
+        )
         agent = AgentService(graph, get_sessionmaker())
         set_runtime(Runtime(sender=wa_client, sessionmaker=get_sessionmaker(), run_agent=agent))
         try:
             yield
         finally:
             set_runtime(None)
+            calendar.configure(None)
             await wa_client.aclose()
+            await google_http.aclose()
             await app.state.redis.aclose()
             await dispose_engine()
 
 
-app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.3.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(whatsapp.router)
+app.include_router(auth_google.router)

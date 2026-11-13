@@ -17,9 +17,8 @@ dependencies = [
     "langchain-google-genai>=4.5,<5.0",
     "langgraph-checkpoint-redis>=0.6,<1.0",
     "qdrant-client>=1.20,<2.0",
-    "google-api-python-client>=2.202,<3.0",
-    "google-auth-oauthlib>=1.5,<2.0",
     "cryptography>=50.0,<51.0",
+    "tzdata>=2026.6",  # IANA zones for zoneinfo on Windows / slim images
     "python-json-logger>=4.2,<5.0",
 ]
 
