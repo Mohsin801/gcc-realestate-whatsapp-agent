@@ -57,5 +57,12 @@ Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `
 ### Config
 All settings live in `core/config.py` (pydantic-settings, loaded from `.env`; `.env.example` lists them). List-type values are JSON in the environment, e.g. `WORKING_DAYS=[0,1,2,3,4]` with Mon=0. Inside docker-compose, the `app` service overrides `DATABASE_URL`, `REDIS_URL` and `QDRANT_URL` with container hostnames.
 
-## Git workflow
-Every finished unit of work gets its own commit, with a subject line and a bulleted body, and is pushed to `origin main` (private repo `Mohsin801/gcc-realestate-whatsapp-agent`). In PowerShell, write the commit message to a temp file and run `git commit -F <file>`; piping a here-string to `-F -` does not work. `.gitattributes` keeps LF line endings because the code runs in Linux containers.
+## Git workflow: commit and push as you go (required)
+The project's state must never live only in the working tree. While you work, commit to Git and push to GitHub regularly, so no progress is lost and any step can be reverted.
+- **Commit at every logical checkpoint:** a feature or module finished, a bug fixed, tests made to pass, docs or config updated. Don't let several unrelated changes pile up, and don't end a session with uncommitted work.
+- **Push right after each commit:** `git push` to `origin main` (private repo `Mohsin801/gcc-realestate-whatsapp-agent`). Check that `git status -sb` shows `## main...origin/main` with nothing ahead.
+- **Clean commit messages:** a subject line in the imperative mood under ~72 characters (e.g. "Add WhatsApp webhook with wamid dedup"), a blank line, then a short bulleted body saying what changed and why. One concern per commit.
+- **Run the tests before committing.** If something is committed in a broken or partial state, say so in the message.
+- **Never commit** `.env` or `.venv`. Both are in `.gitignore`.
+- **PowerShell:** write the message to a temp file and run `git commit -F <file>`. Piping a here-string to `-F -` does not work.
+- `.gitattributes` keeps LF line endings because the code runs in Linux containers.
