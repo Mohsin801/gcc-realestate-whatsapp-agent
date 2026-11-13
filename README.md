@@ -19,9 +19,9 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
 |---|---|
 | `main.py` | FastAPI app + lifespan (Redis, DB, LLM, LangGraph checkpointer) |
 | `core/` | settings (`config.py`), JSON logging |
-| `api/` | `whatsapp.py` webhook (spec §5), `health.py`, Google OAuth |
+| `api/` | `whatsapp.py` webhook (spec §5), `health.py`, `auth_google.py` (owner calendar connection) |
 | `agent/` | `state.py` (spec §3), LangGraph graph, nodes, prompts |
-| `tools/` | `calendar.py` (spec §4), RAG |
+| `tools/` | `calendar.py` (spec §4) + `scheduling.py` (slots, labels) + `calendar_providers/` (Google); RAG in Phase 4 |
 | `services/` | Redis helpers, WhatsApp client, background message processor |
 | `scripts/` | `chat_cli.py`: chat with the agent in the terminal |
 | `db/`, `migrations/` | SQLAlchemy models + Alembic |
@@ -50,10 +50,35 @@ Each WhatsApp message runs one turn of a LangGraph state machine (`agent/graph.p
 - **Resilience**: if the LLM is slow or down, rule-based extraction and Khaleeji/English templates take over, so the lead always gets an answer.
 - **Sessions**: kept in Redis through the LangGraph checkpointer. The qualification results are also saved to Postgres `leads`, and an expired session is re-seeded from there.
 
+## Calendar engine (Phase 3)
+`tools/calendar.py` provides the two spec functions, `get_available_slots` and `create_calendar_event`, with the spec's exact signatures. They use the owner's Google Calendar through its REST API (`tools/calendar_providers/google.py`).
+- **Finding slots:**
+  - 30-minute slots inside working hours (default Mon–Fri 09:00–18:00 Asia/Dubai);
+  - at least 2 hours' notice;
+  - busy times removed using Google freeBusy and existing bookings;
+  - 3 slots, at most 1 per day.
+- **Timezone:** each lead sees times in their own timezone, chosen from the phone country code: +971 → GST; +966, +974, +965 → AST. Any other number gets the owner's timezone.
+- **Labels:** every label includes its date, e.g. "Tomorrow, Tue 17 Nov at 8:00 AM AST" or "بكرة الثلاثاء 17 نوفمبر، الساعة 9:00 الصبح بتوقيت الإمارات". Labels are rebuilt from the stored UTC time each time they're shown, so "Today" and "Tomorrow" always match the real date.
+- **Booking:**
+  1. The slot is reserved in Postgres; a unique index means two leads can't get the same slot.
+  2. It's checked again against freeBusy.
+  3. The Google Calendar event is created with a Google Meet link.
+  4. The event id (the booking reference) and the Meet link are saved in `bookings`.
+- **Calendar invite:** when the lead sends their email, they are added as an attendee and Google emails them the invite.
+
+**Connecting the owner's calendar (one time):**
+1. In Google Cloud Console, enable the **Google Calendar API**. Then create an OAuth client of type **Web application**, with redirect URI `<PUBLIC_BASE_URL>/auth/google/callback`.
+2. In the OAuth consent screen, add the scopes `calendar.events` and `calendar.freebusy`. **Publish the app** (move it out of "Testing"). Apps in Testing get refresh tokens that expire after 7 days.
+3. Set these in `.env`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY` (see `.env.example`), `ADMIN_TOKEN`, `OWNER_NAME`, `OWNER_EMAIL`.
+4. The owner opens `<PUBLIC_BASE_URL>/auth/google/start?token=<ADMIN_TOKEN>` and approves.
+
+Until the calendar is connected, a qualified lead is told the consultant will reach out to arrange a time.
+
 Try it locally without WhatsApp:
 ```
 .venv\Scripts\python scripts\chat_cli.py            # needs GEMINI_API_KEY + GEMINI_MODEL in .env
-.venv\Scripts\python scripts\chat_cli.py --no-llm --slots   # rules/templates + a fake calendar
+.venv\Scripts\python scripts\chat_cli.py --no-llm --slots   # rules/templates + an empty demo calendar
+.venv\Scripts\python scripts\chat_cli.py --slots --phone 966512345678   # see times in Saudi time (AST)
 ```
 
 ### Running tests

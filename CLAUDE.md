@@ -57,7 +57,35 @@ The graph is built in `agent/graph.py`; the nodes live in `agent/nodes.py` (`Age
   - ungrounded figures.
 
   A failing draft is regenerated once, then replaced by the template.
-- Calendar and RAG are reached only through the `Scheduler` / `Knowledge` protocols in `agent/services.py`. Until Phase 3/4 wire in the real implementations, `NullScheduler` (qualified leads get a "consultant will reach out" handoff) and `NullKnowledge` (questions are deferred to the call) are used.
+- Calendar and RAG are reached only through the `Scheduler` / `Knowledge` protocols in `agent/services.py`.
+  - `main.py` wires in `tools.calendar.CalendarScheduler`.
+  - `NullKnowledge` stays in use until Phase 4, so questions are deferred to the call.
+  - `NullScheduler` is the default whenever `build_graph` gets no scheduler (tests, `chat_cli` without `--slots`). It gives qualified leads a "consultant will reach out" handoff.
+
+### Calendar (Phase 3)
+- **`tools/calendar.py`:**
+  - The spec functions delegate to a process-wide `CalendarEngine`, which `calendar.configure()` sets in the lifespan.
+  - `CalendarScheduler` adapts the engine for the agent. It stores offered slots as UTC ISO strings in Redis `offered:{phone}`, and on every call it renders labels from them with `format_slot` in `core.timezones.lead_timezone(phone, owner_tz)`.
+- **`tools/scheduling.py`:** pure logic, with no I/O: `candidate_slots`, `pick_slots`, `format_slot`, `to_iso`/`from_iso`. The canonical stored form is UTC, at second precision.
+- **Booking:**
+  1. `book()` validates the slot against the current candidates: not in the past, outside the notice period, on the grid, within working hours.
+  2. It reserves the slot by inserting the `bookings` row; a partial unique index on (owner_id, slot_iso) WHERE status='CONFIRMED' (migration 0002) blocks double-booking.
+  3. It re-checks freeBusy.
+  4. It creates the event with a Meet link and saves `google_event_id` and `meet_link`.
+
+  Any failure deletes the reservation. Read lead attributes *before* the reserve: a rollback expires loaded objects, and lazy-loading after that fails under asyncio.
+- **Provider:** `tools/calendar_providers/google.py` calls the REST API over async httpx; it does not use google-api-python-client.
+  - `GoogleOAuth` caches access tokens per refresh token.
+  - A 400/401 from the token endpoint raises `CalendarNotConnected`.
+  - The provider retries once on a network error, 429 or 5xx, and refreshes the token on a 401.
+- **`api/auth_google.py`:**
+  - `/auth/google/start` needs `ADMIN_TOKEN`; when it is empty, the endpoint is disabled.
+  - The single-use `oauth_state:{state}` lives in Redis.
+  - The callback requires a refresh token and every scope in `GOOGLE_OAUTH_SCOPES`, then upserts the `owners` row with the token Fernet-encrypted (`core/crypto.py`).
+- **Tests:**
+  - Inject `clock=` and `provider_factory=` into `CalendarEngine` (`tests/test_calendar.py` `FakeProvider`).
+  - Google HTTP is mocked with respx.
+  - `tzdata` is a dependency, because Windows has no system zoneinfo.
 - `agent/llm.py` `build_llm(settings)` returns a `LangChainLLM` with `extract` and `generate`. Every call is time-boxed (`LLM_TIMEOUT_SECONDS`), and `max_retries=0`.
 - Arabic synonym patterns must be written in `normalize_text()` form: ا for أ/إ/آ, ي for ى, ه for ة. A test enforces this.
 - Tests use `tests/agent_fakes.py` (`FakeLLM`, `FakeScheduler`, `FakeKnowledge`) together with `InMemorySaver`. `scripts/chat_cli.py` runs the agent in the terminal (`--no-llm`, `--slots`).
@@ -85,7 +113,9 @@ Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `
 - **WhatsApp:** Meta Cloud API only.
 - **Calendar:** Google Calendar only, with the owner's own OAuth (not a service account). The refresh token is stored Fernet-encrypted in `owners`.
 - **Booking flow:** the event is created as soon as the lead picks a slot, with a Google Meet link. Then we ask for the lead's email and add them as an attendee (`sendUpdates="all"`), which sends the invite. The booking is still valid if they never give an email.
-- **Slots:** working hours are set in config (default Mon–Fri 09:00–18:00 in the owner's timezone, Asia/Dubai), filtered by Google freebusy, with 3 slots and by default at most 1 per day. Each lead sees times in their own country's timezone: DUBAI is "GST" (UTC+4); SAUDI, QATAR and KUWAIT are "AST" (UTC+3).
+- **Slots:** working hours are set in config (default Mon–Fri 09:00–18:00 in the owner's timezone, Asia/Dubai), filtered by Google freebusy, with 3 slots and by default at most 1 per day.
+  - Each lead sees times in their own timezone, chosen from the phone country code: +971 → Asia/Dubai "GST"; +966/+974/+965 → Riyadh/Qatar/Kuwait "AST". Any other code falls back to the owner's timezone. This follows the phone, not the target market.
+  - Every label includes the date ("Tomorrow, Tue 17 Nov at 8:00 AM AST"). Labels are rebuilt from the stored UTC ISO each time they're shown, so "Today"/"Tomorrow" always match the stored date.
 - **Persona:** the agent never reveals it is an AI or a bot, in English or Arabic, and a guard checks every reply for this. The rule is the config flag `PERSONA_CONCEAL_AI`: it defaults to true, as the spec requires; setting it to false lets the agent disclose honestly when asked. It speaks as a senior property consultant. Replies are short WhatsApp messages. Arabic replies use Khaleeji dialect.
 - **No hallucinated legal or tax figures:** fees, percentages and thresholds may only come from retrieved knowledge-base passages. If retrieval returns nothing above the score threshold, the agent defers to the consultant call.
 - **Response time:** under 3 s from webhook to send, in both languages (spec Definition of Done). `chat_logs.latency_ms` records it.
