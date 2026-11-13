@@ -26,6 +26,15 @@ Request path: Meta WhatsApp → `POST /whatsapp/webhook` (`api/whatsapp.py`) →
 - Qdrant holds the GCC legal/tax knowledge base and property listings.
 - `tools/calendar.py` talks to Google Calendar through a `CalendarProvider` interface.
 
+Background tasks reach the shared WhatsApp client, DB session factory and agent function through `services/runtime.py` (`Runtime`, `set_runtime`/`get_runtime`). It works this way because the spec-fixed webhook signature has no `Request`. `main.py` fills the container at startup, and tests swap in fakes (`tests/conftest.py`: `RecordingSender`, fakeredis, in-memory SQLite). `services/processor.py` is the background step:
+1. take the per-phone lock
+2. mark the message read and show the typing indicator
+3. upsert the lead and log the inbound message
+4. call `runtime.run_agent(msg, language)` with a timeout
+5. send the replies and log each outbound message with `latency_ms`
+
+It never raises. On any failure it sends a persona-safe template from `agent/templates.py`, so the lead always gets an answer. `agent/runner.py` is the agent entry point, a placeholder until the Phase 2 LangGraph pipeline replaces it.
+
 Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `core/`, plus `main.py`). They are not under `app/`, because the spec names `agent/state.py`, `tools/calendar.py` and `api/whatsapp.py`.
 
 ### Contracts fixed by the spec (do not change)

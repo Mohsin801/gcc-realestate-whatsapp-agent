@@ -20,6 +20,10 @@ class Base(DeclarativeBase):
     pass
 
 
+# BIGINT on Postgres; plain INTEGER on SQLite (used in tests) so autoincrement works there.
+BigId = BigInteger().with_variant(Integer, "sqlite")
+
+
 class Owner(Base):
     """A property owner/consultant whose Google Calendar receives bookings."""
 
@@ -41,7 +45,7 @@ class Owner(Base):
 class Lead(Base):
     __tablename__ = "leads"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
     phone: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     profile_name: Mapped[str | None] = mapped_column(String(255))
     language: Mapped[str] = mapped_column(String(2), default="en")
@@ -65,8 +69,8 @@ class Lead(Base):
 class ChatLog(Base):
     __tablename__ = "chat_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
+    lead_id: Mapped[int] = mapped_column(BigId, ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     direction: Mapped[str] = mapped_column(String(3))  # 'in' | 'out'
     wamid: Mapped[str | None] = mapped_column(String(255), unique=True)  # inbound WhatsApp message id
     text: Mapped[str] = mapped_column(Text)
@@ -80,8 +84,8 @@ class ChatLog(Base):
 class Booking(Base):
     __tablename__ = "bookings"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
+    lead_id: Mapped[int] = mapped_column(BigId, ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     owner_id: Mapped[str] = mapped_column(ForeignKey("owners.id"), index=True)
     slot_iso: Mapped[str] = mapped_column(String(64))
     google_event_id: Mapped[str | None] = mapped_column(String(255), unique=True)  # booking reference
