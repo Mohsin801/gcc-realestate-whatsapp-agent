@@ -43,5 +43,4 @@ async def test_offered_slots_roundtrip(fake_redis):
 def test_app_routes_registered():
     from main import app
 
-    paths = {r.path for r in app.routes}
-    assert "/health" in paths
+    assert app.url_path_for("health") == "/health"
