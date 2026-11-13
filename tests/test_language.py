@@ -13,6 +13,9 @@ from agent.language import detect_language
         ("Budget is 2M AED, شكرا", "en"),  # mixed, English-dominant
         ("ميزانيتي ٢ مليون", "ar"),  # Arabic-Indic digits
         ("2", None),  # slot pick: no letters -> keep previous language
+        ("ahmed.k@gmail.com", None),  # a bare email says nothing about language
+        ("https://example.com/listing", None),
+        ("إيميلي ahmed@gmail.com", "ar"),
         ("👍🙏", None),
         ("", None),
         (None, None),

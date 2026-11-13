@@ -32,9 +32,24 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = ""  # set in .env to the current Gemini Flash model id
     gemini_embedding_model: str = ""  # set in .env to the current Gemini embedding model id
+    gemini_thinking_level: str = "minimal"  # minimal | low | medium | high; minimal keeps replies fast
+    anthropic_api_key: str = ""
+    anthropic_model: str = ""
+    openai_api_key: str = ""
+    openai_model: str = ""
     embedding_dim: int = 768
-    llm_timeout_seconds: float = 8.0
+    llm_temperature: float = 0.4
+    llm_timeout_seconds: float = 4.0  # per LLM call; on timeout the agent falls back to rules/templates
     llm_history_messages: int = 12  # how many recent messages are sent to the LLM
+
+    # --- Persona (spec §3) ---
+    # Spec default: never reveal being an AI/bot. Set PERSONA_CONCEAL_AI=false to allow the agent to
+    # say it is an automated assistant when asked (e.g. where disclosure is legally required).
+    persona_conceal_ai: bool = True
+    persona_name: str = ""  # optional first name the consultant uses; empty = never invent one
+    company_name: str = ""  # optional agency name used in greetings
+    reply_max_chars: int = 400  # per WhatsApp bubble ("no walls of text")
+    reply_max_messages: int = 2  # bubbles per turn
 
     # --- Google Calendar (owner OAuth) ---
     google_client_id: str = ""

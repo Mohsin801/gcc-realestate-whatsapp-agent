@@ -1,15 +1,99 @@
-"""Agent entrypoint used by the message processor.
+"""Agent entrypoint used by the message processor: runs one turn of the LangGraph agent for a lead.
 
-PHASE 1 PLACEHOLDER: replies with a short bilingual opener so the webhook pipeline can be
-exercised end-to-end. Phase 2 replaces `run_agent` with the LangGraph pipeline.
+* Session state lives in the LangGraph checkpointer (Redis in production), keyed by phone number.
+* If there is no checkpoint (new lead, or the session expired), the qualification fields are seeded
+  from the Postgres ``leads`` row, so a returning lead is never asked the same questions twice.
+* After each turn the qualification fields are written back to ``leads`` (the durable record).
 """
+import logging
+from typing import Any
+
+from langchain_core.messages import HumanMessage
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from db import repository
 from services.inbound import IncomingMessage
 
-_OPENER = {
-    "en": "Hello! Thanks for reaching out 😊 Which market are you looking at: Dubai, Saudi, Qatar or Kuwait?",
-    "ar": "هلا والله! مشكور على تواصلك 😊 أي سوق يهمك: دبي، السعودية، قطر ولا الكويت؟",
-}
+log = logging.getLogger(__name__)
 
 
-async def run_agent(msg: IncomingMessage, language: str) -> list[str]:
-    return [_OPENER["ar"] if language == "ar" else _OPENER["en"]]
+class AgentService:
+    def __init__(self, graph, sessionmaker: async_sessionmaker[AsyncSession] | None = None):
+        self.graph = graph
+        self.sessionmaker = sessionmaker
+
+    async def __call__(self, msg: IncomingMessage, language: str) -> list[str]:
+        config = {"configurable": {"thread_id": msg.phone, "lead_name": msg.profile_name}}
+        turn_input: dict[str, Any] = {
+            "messages": [HumanMessage(msg.text or "")],
+            "phone_number": msg.phone,
+            "language": language,
+            "turn": {},
+        }
+        snapshot = await self.graph.aget_state(config)
+        if not snapshot.values:
+            turn_input |= await self._seed(msg.phone)
+        result = await self.graph.ainvoke(turn_input, config)
+        await self._persist(msg.phone, result)
+        turn = result.get("turn") or {}
+        log.info(
+            "agent turn",
+            extra={
+                "phone": msg.phone,
+                "language": result.get("language"),
+                "extraction_source": turn.get("extraction_source"),
+                "message_intent": (turn.get("extraction") or {}).get("message_intent"),
+                "parts": [p["kind"] for p in turn.get("parts") or []],
+                "draft_source": turn.get("draft_source"),
+                "booking_status": result.get("booking_status"),
+                "is_qualified": result.get("is_qualified"),
+            },
+        )
+        return list(turn.get("replies") or [])
+
+    async def _seed(self, phone: str) -> dict[str, Any]:
+        seed: dict[str, Any] = {
+            "target_country": None, "intent": None, "budget_usd": None, "timeline": None,
+            "is_qualified": False, "booking_status": "NONE", "selected_slot": None,
+        }
+        if self.sessionmaker is None:
+            return seed
+        try:
+            async with self.sessionmaker() as session:
+                lead = await repository.get_lead(session, phone)
+                booking = await repository.latest_booking(session, lead.id) if lead else None
+        except Exception:  # noqa: BLE001 - DB outage: start a fresh session
+            log.warning("could not seed session from Postgres", exc_info=True)
+            return seed
+        if lead is not None:
+            seed.update(
+                target_country=lead.target_country, intent=lead.intent, budget_usd=lead.budget_usd,
+                timeline=lead.timeline, is_qualified=bool(lead.is_qualified),
+                # an offer's slots live in Redis and may be gone; re-offer instead of resuming SLOTS_OFFERED
+                booking_status="BOOKED" if lead.booking_status == "BOOKED" else "NONE",
+            )
+            if booking is not None and lead.booking_status == "BOOKED":
+                seed["selected_slot"] = booking.slot_iso
+        return seed
+
+    async def _persist(self, phone: str, state: dict) -> None:
+        if self.sessionmaker is None:
+            return
+        budget = (state.get("turn") or {}).get("budget")
+        fields = {
+            "target_country": state.get("target_country"),
+            "intent": state.get("intent"),
+            "budget_usd": state.get("budget_usd"),
+            "timeline": state.get("timeline"),
+            "is_qualified": bool(state.get("is_qualified")),
+            "booking_status": state.get("booking_status") or "NONE",
+            "language": state.get("language"),
+        }
+        if budget:
+            fields["budget_original_amount"] = budget["amount"]
+            fields["budget_original_currency"] = budget["currency"]
+        try:
+            async with self.sessionmaker() as session:
+                await repository.update_lead_profile(session, phone, **fields)
+        except Exception:  # noqa: BLE001 - the reply still goes out; Redis keeps the session
+            log.exception("failed to persist lead profile", extra={"phone": phone})
