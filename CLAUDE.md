@@ -100,5 +100,5 @@ The project's state must never live only in the working tree. While you work, co
 - **Clean commit messages:** a subject line in the imperative mood under ~72 characters (e.g. "Add WhatsApp webhook with wamid dedup"), a blank line, then a short bulleted body saying what changed and why. One concern per commit.
 - **Run the tests before committing.** If something is committed in a broken or partial state, say so in the message.
 - **Never commit** `.env` or `.venv`. Both are in `.gitignore`.
-- **PowerShell:** write the message to a temp file and run `git commit -F <file>`. Piping a here-string to `-F -` does not work.
+- **PowerShell:** write the message to a temp file and run `git commit -F <file>`. Piping a here-string to `-F -` does not work. Write the file with the editor's Write tool, or as UTF-8 *without* a BOM. Windows PowerShell 5.1's `Set-Content -Encoding utf8` adds a BOM, and the BOM then appears at the start of the commit subject.
 - `.gitattributes` keeps LF line endings because the code runs in Linux containers.
