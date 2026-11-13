@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pytest *)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -m pytest *)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\pytest.exe *)",
+      "PowerShell(Select-Object *)",
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest *)",
+      "Bash(.venv/Scripts/pytest.exe *)"
+    ]
+  }
+}
