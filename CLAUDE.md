@@ -33,7 +33,34 @@ Background tasks reach the shared WhatsApp client, DB session factory and agent 
 4. call `runtime.run_agent(msg, language)` with a timeout
 5. send the replies and log each outbound message with `latency_ms`
 
-It never raises. On any failure it sends a persona-safe template from `agent/templates.py`, so the lead always gets an answer. `agent/runner.py` is the agent entry point, a placeholder until the Phase 2 LangGraph pipeline replaces it.
+It never raises. On any failure it sends a persona-safe template from `agent/templates.py`, so the lead always gets an answer.
+
+### Agent (Phase 2)
+`agent/runner.py` `AgentService` is the `run_agent` callable. Each turn it:
+- calls the compiled graph with `thread_id = phone`;
+- when no checkpoint exists, seeds the qualification fields from Postgres `leads`;
+- afterwards writes them back with `repository.update_lead_profile`.
+
+The graph is built in `agent/graph.py`; the nodes live in `agent/nodes.py` (`AgentNodes`):
+`detect_language → extract → normalize → [answer_question] → qualify|offer_slots|book_slot|capture_email|follow_up → respond → persona_guard`.
+
+- The graph state is `GCCRealEstateState` plus one `turn` dict for per-turn working data: the extraction, the `parts` to say, the draft, and the final `replies`. The runner resets `turn` at the start of each turn.
+- Step nodes don't write text. They append `parts` (e.g. `ASK`, `OFFER_SLOTS`, `BOOKED`). `respond._compose` turns the parts into:
+  - task lines for the LLM;
+  - a template fallback;
+  - an optional appendix bubble (the slot list, or the booking time and Meet link), which is written by code so it is always exact.
+- `extract` uses the LLM's structured output (`agent/prompts.py` `Extraction`). It skips the LLM for a bare slot number or email. On any LLM error it falls back to the rules in `agent/normalize.py`.
+- The guard (`agent/persona_guard.py`) checks for:
+  - AI/bot wording (only while `persona_conceal_ai` is on);
+  - replies too long for the bubble limit;
+  - a reply in the wrong language;
+  - ungrounded figures.
+
+  A failing draft is regenerated once, then replaced by the template.
+- Calendar and RAG are reached only through the `Scheduler` / `Knowledge` protocols in `agent/services.py`. Until Phase 3/4 wire in the real implementations, `NullScheduler` (qualified leads get a "consultant will reach out" handoff) and `NullKnowledge` (questions are deferred to the call) are used.
+- `agent/llm.py` `build_llm(settings)` returns a `LangChainLLM` with `extract` and `generate`. Every call is time-boxed (`LLM_TIMEOUT_SECONDS`), and `max_retries=0`.
+- Arabic synonym patterns must be written in `normalize_text()` form: ا for أ/إ/آ, ي for ى, ه for ة. A test enforces this.
+- Tests use `tests/agent_fakes.py` (`FakeLLM`, `FakeScheduler`, `FakeKnowledge`) together with `InMemorySaver`. `scripts/chat_cli.py` runs the agent in the terminal (`--no-llm`, `--slots`).
 
 Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `core/`, plus `main.py`). They are not under `app/`, because the spec names `agent/state.py`, `tools/calendar.py` and `api/whatsapp.py`.
 
@@ -59,7 +86,7 @@ Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `
 - **Calendar:** Google Calendar only, with the owner's own OAuth (not a service account). The refresh token is stored Fernet-encrypted in `owners`.
 - **Booking flow:** the event is created as soon as the lead picks a slot, with a Google Meet link. Then we ask for the lead's email and add them as an attendee (`sendUpdates="all"`), which sends the invite. The booking is still valid if they never give an email.
 - **Slots:** working hours are set in config (default Mon–Fri 09:00–18:00 in the owner's timezone, Asia/Dubai), filtered by Google freebusy, with 3 slots and by default at most 1 per day. Each lead sees times in their own country's timezone: DUBAI is "GST" (UTC+4); SAUDI, QATAR and KUWAIT are "AST" (UTC+3).
-- **Persona:** the agent never reveals it is an AI or a bot, in English or Arabic, and a guard checks every reply for this. It speaks as a senior property consultant. Replies are short WhatsApp messages. Arabic replies use Khaleeji dialect.
+- **Persona:** the agent never reveals it is an AI or a bot, in English or Arabic, and a guard checks every reply for this. The rule is the config flag `PERSONA_CONCEAL_AI`: it defaults to true, as the spec requires; setting it to false lets the agent disclose honestly when asked. It speaks as a senior property consultant. Replies are short WhatsApp messages. Arabic replies use Khaleeji dialect.
 - **No hallucinated legal or tax figures:** fees, percentages and thresholds may only come from retrieved knowledge-base passages. If retrieval returns nothing above the score threshold, the agent defers to the consultant call.
 - **Response time:** under 3 s from webhook to send, in both languages (spec Definition of Done). `chat_logs.latency_ms` records it.
 
