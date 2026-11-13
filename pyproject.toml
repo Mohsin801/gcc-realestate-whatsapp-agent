@@ -1,0 +1,47 @@
+[project]
+name = "gcc-realestate-agent"
+version = "0.1.0"
+description = "Bilingual (EN/AR) 24/7 WhatsApp lead qualifier & auto-scheduler for GCC real estate"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162,<1.0",
+    "uvicorn[standard]>=0.54,<1.0",
+    "pydantic-settings>=2.16,<3.0",
+    "httpx>=0.28,<1.0",
+    "redis>=8.1,<9.0",
+    "sqlalchemy[asyncio]>=2.1,<2.2",
+    "asyncpg>=0.32,<1.0",
+    "alembic>=1.20,<2.0",
+    "langgraph>=1.2,<2.0",
+    "langchain-core>=1.8,<2.0",
+    "langchain-google-genai>=4.5,<5.0",
+    "langgraph-checkpoint-redis>=0.6,<1.0",
+    "qdrant-client>=1.20,<2.0",
+    "google-api-python-client>=2.202,<3.0",
+    "google-auth-oauthlib>=1.5,<2.0",
+    "cryptography>=50.0,<51.0",
+    "python-json-logger>=4.2,<5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.2,<10.0",
+    "pytest-asyncio>=1.5,<2.0",
+    "respx>=0.23,<1.0",
+    "fakeredis>=2.40,<3.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["api*", "agent*", "tools*", "services*", "db*", "core*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
