@@ -24,8 +24,8 @@ async def _timed(name: str, coro) -> tuple[str, bool, int]:
     try:
         await asyncio.wait_for(coro, timeout=WARMUP_TIMEOUT_SECONDS)
         ok = True
-    except Exception:  # noqa: BLE001
-        log.info("warm-up of %s failed", name, exc_info=True)
+    except Exception:  # noqa: BLE001 - often a misconfiguration (bad model id, unsupported setting, quota)
+        log.warning("warm-up of %s failed", name, exc_info=True)
         ok = False
     return name, ok, int((time.perf_counter() - start) * 1000)
 

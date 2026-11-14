@@ -54,6 +54,8 @@ def test_build_llm_gemini_uses_configured_model():
     assert isinstance(llm, LangChainLLM)
     assert llm._model.model.endswith("gemini-test-flash")
     assert llm._model.thinking_level == "minimal" and llm._model.max_retries == 0
+    # Gemini refuses deadlines under 10 s; the 3 s cap is enforced by LangChainLLM instead
+    assert llm._model.timeout == 10 and llm._timeout == 3
 
 
 async def test_langchain_llm_generate_and_timeout():

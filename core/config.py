@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = ""  # set in .env to the current Gemini Flash model id
     gemini_embedding_model: str = ""  # set in .env to the current Gemini embedding model id
-    gemini_thinking_level: str = "minimal"  # minimal | low | medium | high; minimal keeps replies fast
+    # minimal | low | medium | high, or empty for the model default. Not every model takes every level:
+    # gemini-3.8-flash rejects "minimal" (400 INVALID_ARGUMENT), which would make every LLM call fail.
+    gemini_thinking_level: str = "low"
     anthropic_api_key: str = ""
     anthropic_model: str = ""
     openai_api_key: str = ""

@@ -19,6 +19,10 @@ from core.config import Settings
 
 T = TypeVar("T", bound=BaseModel)
 
+# The Gemini API rejects requests whose deadline is under 10 s ("400 Manually set deadline 4s is too short").
+# The client gets at least this; the real, shorter per-call cap is our asyncio.wait_for in LangChainLLM.
+GEMINI_MIN_DEADLINE_SECONDS = 10.0
+
 
 class LLMProvider(Protocol):
     async def extract(self, system: str, messages: Sequence[BaseMessage], schema: type[T],
@@ -90,7 +94,7 @@ def build_llm(settings: Settings) -> LLMProvider:
         model = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             api_key=settings.gemini_api_key,
-            timeout=settings.llm_timeout_seconds,
+            timeout=max(settings.llm_timeout_seconds, GEMINI_MIN_DEADLINE_SECONDS),
             max_retries=0,  # we time-box each call and fall back ourselves
             **common,
             **kwargs,
