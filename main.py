@@ -9,6 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from agent.graph import build_graph
 from agent.llm import LLMConfigError, build_llm
 from agent.runner import AgentService
+from agent.services import Knowledge, NullKnowledge
 from api import auth_google, health, whatsapp
 from core.config import Settings, get_settings
 from core.crypto import TokenCipher
@@ -20,6 +21,7 @@ from services.whatsapp_client import WhatsAppClient
 from tools import calendar
 from tools.calendar import CalendarEngine, CalendarScheduler
 from tools.calendar_providers.google import GoogleOAuth
+from tools.rag import KnowledgeConfigError, build_knowledge
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +47,15 @@ def open_llm(settings: Settings):
     except LLMConfigError:
         log.exception("LLM not configured; the agent will run on rules and templates only")
         return None
+
+
+def open_knowledge(settings: Settings) -> tuple[Knowledge, object | None]:
+    """Qdrant knowledge base, or NullKnowledge (every legal/tax question is deferred to the call)."""
+    try:
+        return build_knowledge(settings)
+    except KnowledgeConfigError:
+        log.warning("Knowledge base disabled (no embedding model configured); questions will be deferred to the call")
+        return NullKnowledge(), None
 
 
 def open_cipher(settings: Settings) -> TokenCipher | None:
@@ -77,11 +88,14 @@ async def lifespan(app: FastAPI):
         settings, get_sessionmaker(), oauth=app.state.google_oauth, cipher=open_cipher(settings)
     )
     calendar.configure(calendar_engine)
+    knowledge, qdrant = open_knowledge(settings)
     async with AsyncExitStack() as stack:
+        if qdrant is not None:
+            stack.push_async_callback(qdrant.close)
         checkpointer = await open_checkpointer(stack, settings)
         graph = build_graph(
             llm=open_llm(settings), settings=settings, checkpointer=checkpointer,
-            scheduler=CalendarScheduler(calendar_engine, app.state.redis),
+            scheduler=CalendarScheduler(calendar_engine, app.state.redis), knowledge=knowledge,
         )
         agent = AgentService(graph, get_sessionmaker())
         set_runtime(Runtime(sender=wa_client, sessionmaker=get_sessionmaker(), run_agent=agent))
@@ -96,7 +110,7 @@ async def lifespan(app: FastAPI):
             await dispose_engine()
 
 
-app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.4.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(whatsapp.router)
 app.include_router(auth_google.router)

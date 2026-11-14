@@ -1,0 +1,102 @@
+[
+  {
+    "id": "dubai-dld-sale-registration-fee",
+    "country": "DUBAI",
+    "topic": "fees",
+    "title_en": "Dubai Land Department (DLD) property sale registration / transfer fee",
+    "title_ar": "رسوم تسجيل بيع العقار (رسوم النقل) لدى دائرة الأراضي والأملاك في دبي",
+    "en": "In Dubai, the Dubai Land Department (DLD) charges a sale registration fee of 4% of the sale value. Under Executive Council Resolution No. 30 of 2013 it is shared equally between seller and buyer unless they agree otherwise, and DLD's service page lists it as 2% for the seller and 2% for the buyer.",
+    "ar": "في دبي، تفرض دائرة الأراضي والأملاك رسوم تسجيل بيع بنسبة 4% من قيمة البيع. وبموجب قرار المجلس التنفيذي رقم 30 لسنة 2013 تُقسَم هذه الرسوم مناصفةً بين البائع والمشتري ما لم يتفقا على غير ذلك، وتذكرها صفحة الخدمة لدى الدائرة بواقع 2% على البائع و2% على المشتري.",
+    "sources": [
+      {
+        "name": "Dubai Land Department - Property Sale Registration service",
+        "url": "https://dubailand.gov.ae/en/eservices/property-sale-registration/"
+      },
+      {
+        "name": "Dubai Executive Council Resolution No. (30) of 2013 Approving Fees of the Land Department",
+        "url": "https://dlp.dubai.gov.ae/Legislation%20Reference/2013/ECR%2030%20of%202013.html"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "dubai-dld-sale-other-fees",
+    "country": "DUBAI",
+    "topic": "fees",
+    "title_en": "Other DLD fees when registering a property sale in Dubai (title deed, service fee)",
+    "title_ar": "الرسوم الأخرى لدى دائرة الأراضي والأملاك عند تسجيل بيع عقار في دبي (سند الملكية ورسوم الخدمة)",
+    "en": "On top of the 4% sale registration fee, DLD's Property Sale Registration service lists an AED 250 title deed certificate fee, an AED 10 knowledge fee and an AED 10 innovation fee, plus a further fee of AED 4,000 + VAT when the sale value is AED 500,000 or more (AED 2,000 + VAT when it is below AED 500,000).",
+    "ar": "إضافةً إلى رسوم تسجيل البيع البالغة 4%، تذكر خدمة تسجيل بيع العقار لدى دائرة الأراضي والأملاك رسوم إصدار شهادة سند الملكية بقيمة 250 درهماً، ورسوم معرفة بقيمة 10 دراهم ورسوم ابتكار بقيمة 10 دراهم، إضافةً إلى رسوم بقيمة 4,000 درهم + ضريبة القيمة المضافة إذا كانت قيمة البيع 500,000 درهم أو أكثر (و2,000 درهم + الضريبة إذا كانت أقل من 500,000 درهم).",
+    "sources": [
+      {
+        "name": "Dubai Land Department - Property Sale Registration service",
+        "url": "https://dubailand.gov.ae/en/eservices/property-sale-registration/"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "dubai-mortgage-registration-fee",
+    "country": "DUBAI",
+    "topic": "mortgage",
+    "title_en": "Mortgage registration fee at the Dubai Land Department",
+    "title_ar": "رسوم تسجيل الرهن العقاري لدى دائرة الأراضي والأملاك في دبي",
+    "en": "Registering a mortgage with the Dubai Land Department costs 0.25% of the mortgage (loan) amount, under Executive Council Resolution No. 30 of 2013.",
+    "ar": "يبلغ رسم تسجيل الرهن العقاري لدى دائرة الأراضي والأملاك في دبي 0.25% من قيمة الرهن (مبلغ التمويل)، وفقاً لقرار المجلس التنفيذي رقم 30 لسنة 2013.",
+    "sources": [
+      {
+        "name": "Dubai Executive Council Resolution No. (30) of 2013 Approving Fees of the Land Department",
+        "url": "https://dlp.dubai.gov.ae/Legislation%20Reference/2013/ECR%2030%20of%202013.html"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "uae-golden-residency-property",
+    "country": "DUBAI",
+    "topic": "golden_visa",
+    "title_en": "UAE Golden Visa (Golden Residency) through buying property",
+    "title_ar": "الإقامة الذهبية (الفيزا الذهبية) في الإمارات عن طريق شراء عقار",
+    "en": "For UAE Golden Residency as a real estate investor, you must own one or more properties in the UAE worth a total of at least AED 2,000,000, fully registered in your name. The property may be financed by a loan from an approved local bank, and valid health insurance is required (ICP).",
+    "ar": "للحصول على الإقامة الذهبية في الإمارات كمستثمر عقاري، يجب أن تملك عقاراً أو أكثر في الدولة بقيمة إجمالية لا تقل عن 2,000,000 درهم، مسجلاً بالكامل باسمك. ويجوز أن يكون العقار ممولاً بقرض من بنك محلي معتمد، ويلزم تأمين صحي ساري المفعول (الهيئة الاتحادية للهوية والجنسية والجمارك وأمن المنافذ).",
+    "sources": [
+      {
+        "name": "ICP (Federal Authority for Identity, Citizenship, Customs & Port Security) - UAE Golden Residency Guide",
+        "url": "https://icp.gov.ae/en/services/uae-golden-residency/"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "uae-golden-residency-off-plan",
+    "country": "DUBAI",
+    "topic": "golden_visa",
+    "title_en": "UAE Golden Visa (Golden Residency) with off-plan property",
+    "title_ar": "الإقامة الذهبية (الفيزا الذهبية) في الإمارات عن طريق عقار على الخارطة (أوف بلان)",
+    "en": "Off-plan property can also qualify for UAE Golden Residency: the investor must have bought one or more off-plan units worth a total of at least AED 2,000,000 from an approved local real estate company licensed by the competent local authority (ICP).",
+    "ar": "يمكن أن تؤهل العقارات على الخارطة أيضاً للإقامة الذهبية في الإمارات: يجب أن يكون المستثمر قد اشترى وحدة أو أكثر على الخارطة بقيمة إجمالية لا تقل عن 2,000,000 درهم من شركة عقارية محلية معتمدة ومرخصة من الجهة المحلية المختصة (الهيئة الاتحادية للهوية والجنسية والجمارك وأمن المنافذ).",
+    "sources": [
+      {
+        "name": "ICP (Federal Authority for Identity, Citizenship, Customs & Port Security) - UAE Golden Residency Guide",
+        "url": "https://icp.gov.ae/en/services/uae-golden-residency/"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "dubai-freehold-foreign-ownership",
+    "country": "DUBAI",
+    "topic": "ownership",
+    "title_en": "Can foreigners (non-UAE nationals) buy freehold property in Dubai?",
+    "title_ar": "هل يحق للأجانب (غير المواطنين) تملك العقارات بنظام التملك الحر في دبي؟",
+    "en": "Non-UAE nationals can own freehold property in Dubai, without time limit, in the areas designated for them. Dubai Regulation No. 3 of 2006 lists these areas, including Dubai Marina, Palm Jumeirah, Emirates Hills, Jebel Ali and Al Barsha South. The status of a specific plot should be confirmed with the Dubai Land Department.",
+    "ar": "يحق لغير مواطني دولة الإمارات تملّك العقارات في دبي بنظام التملك الحر ودون قيد زمني في المناطق المخصصة لهم. وتحدد اللائحة رقم 3 لسنة 2006 هذه المناطق، ومنها دبي مارينا ونخلة جميرا وتلال الإمارات وجبل علي والبرشاء جنوب. ويُتحقق من وضع أي قطعة أرض بعينها لدى دائرة الأراضي والأملاك.",
+    "sources": [
+      {
+        "name": "Dubai Regulation No. (3) of 2006 Determining Areas for Ownership of Real Property by Non-UAE Nationals",
+        "url": "https://dlp.dubai.gov.ae/Legislation%20Reference/2006/Regulation%20No.%20(3)%20of%202006.html"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  }
+]

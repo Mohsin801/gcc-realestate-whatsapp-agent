@@ -84,11 +84,20 @@ class Settings(BaseSettings):
     rate_qar: float = 3.64
     rate_kwd: float = 0.307  # KWD is basket-pegged; update periodically
 
-    # --- RAG ---
-    rag_collection: str = "gcc_knowledge"
-    properties_collection: str = "properties"
-    rag_top_k: int = 4
+    # --- RAG (Qdrant knowledge base) ---
+    rag_collection: str = "gcc_knowledge"  # official-source legal/tax facts
+    properties_collection: str = "properties"  # the owner's listings (optional)
+    knowledge_dir: str = "knowledge_base/facts"
+    rag_top_k: int = 3
+    # Minimum cosine similarity for a passage to count as an answer; below it the agent defers to the call.
+    # Calibrate with `scripts/ingest_kb.py search "..." --all-scores` after changing the embedding model.
     rag_score_threshold: float = 0.6
+    rag_timeout_seconds: float = 2.5  # embed the question + search; on timeout the agent defers to the call
+    rag_fact_max_age_days: int = 180  # ingest warns about facts not re-checked for this long
+    # gemini-embedding-2 takes the task as a text prefix; set false for gemini-embedding-001 (uses task_type)
+    gemini_embedding_task_prefixes: bool = True
+    embedding_timeout_seconds: float = 30.0  # HTTP timeout of the embedding client (searches are capped above)
+    qdrant_timeout_seconds: float = 5.0
 
     # --- Session ---
     session_ttl_minutes: int = 60 * 24 * 30  # LangGraph checkpoint TTL (30 days)

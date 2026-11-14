@@ -53,7 +53,7 @@ _FAQ_HINT = re.compile(
 _GREETING_HINT = re.compile(
     r"^\s*(hi|hello|hey|salam|good (morning|evening|afternoon)|السلام|سلام|هلا|مرحبا|صباح|مساء)\b"
 )
-_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
 
 
 def _text(msg: BaseMessage) -> str:
@@ -73,7 +73,8 @@ def first_name(config: RunnableConfig | None) -> str | None:
 
 
 def _num(text: str) -> set[str]:
-    return {n.replace(",", ".") for n in _NUMBER_RE.findall(to_western_digits(text))}
+    """Numbers in a text, normalised: ASCII digits, thousands separators dropped ("2,000,000" -> "2000000")."""
+    return {n.replace(",", "") for n in _NUMBER_RE.findall(to_western_digits(text))}
 
 
 class AgentNodes:
@@ -185,7 +186,11 @@ class AgentNodes:
         ex = turn.get("extraction") or {}
         updates: dict[str, Any] = {}
         if ex.get("target_country") in COUNTRIES:
-            updates["target_country"] = ex["target_country"]
+            if ex.get("message_intent") in QUESTION_INTENTS and state.get("target_country"):
+                # Asking about another market ("and in Saudi?") doesn't change where they want to buy.
+                turn["question_country"] = ex["target_country"]
+            else:
+                updates["target_country"] = ex["target_country"]
         if ex.get("intent") in INTENTS:
             updates["intent"] = ex["intent"]
         if ex.get("timeline") in TIMELINES:
@@ -231,15 +236,22 @@ class AgentNodes:
         turn = self._turn(state)
         ex = turn.get("extraction") or {}
         question = ex.get("question") or last_human_text(state)
+        # The market the question is about: named in this message, else the lead's own target market.
+        country = (turn.get("question_country") or ex.get("target_country") or match_country(question)
+                   or state.get("target_country"))
         try:
-            passages = await self.knowledge.search(question, state.get("target_country"), state["language"])
-        except Exception:  # noqa: BLE001
+            passages = await self.knowledge.search(question, country, state["language"])
+        except Exception:  # noqa: BLE001 - Qdrant/embeddings down or slow: defer, never guess
             log.warning("knowledge search failed", exc_info=True)
             passages = []
         if passages:
             turn["knowledge"] = [p.text for p in passages]
-            turn["sources"] = [p.source for p in passages if p.source]
-            self._add_part(turn, "ANSWER", question=question)
+            turn["sources"] = [
+                {"source": p.source, "score": round(p.score, 3), **{k: p.metadata.get(k) for k in ("doc_id", "checked_on")}}
+                for p in passages
+            ]
+            # The best passage doubles as the template answer if the LLM is unavailable.
+            self._add_part(turn, "ANSWER", question=question, answer=passages[0].text)
         else:
             self._add_part(turn, "DEFER", question=question)
         return {"turn": turn}
@@ -339,12 +351,16 @@ class AgentNodes:
             elif kind == "ACK_INFO":
                 tasks.append("Briefly acknowledge what they just shared (a few words).")
             elif kind == "ANSWER":
-                tasks.append(f"Answer their question ({p['question']}) using ONLY the KNOWLEDGE section.")
-                fallback.append(pick(T.DEFER_QUESTION))
+                tasks.append(
+                    f"Answer their question ({p['question']}) briefly using ONLY the facts in KNOWLEDGE, and make "
+                    "clear which country they apply to. If KNOWLEDGE answers only part of it, answer that part and "
+                    "say you'll confirm the rest for them on the call."
+                )
+                fallback.append(p.get("answer") or pick(T.DEFER_QUESTION))
             elif kind == "DEFER":
                 tasks.append(
-                    f"They asked: {p['question']}. You have no verified information on this: say the consultant "
-                    "will confirm the exact, up-to-date details on the call. Do not guess any figures."
+                    f"They asked: {p['question']}. You have no verified information on this: say you'll confirm "
+                    "the exact, up-to-date details for them on the call. Do not guess any figures or rules."
                 )
                 fallback.append(pick(T.DEFER_QUESTION))
             elif kind == "ASK":
@@ -445,14 +461,14 @@ class AgentNodes:
         draft_lang = detect_language(draft)
         if draft_lang and draft_lang != state["language"]:
             problems.append("wrong_language")
-        if not turn.get("knowledge"):
-            kinds = {p["kind"] for p in turn.get("parts") or []}
-            if re.search(r"\d\s*%|٪|percent|بالمي[هة]", to_western_digits(draft).lower()):
+        kinds = {p["kind"] for p in turn.get("parts") or []}
+        if turn.get("knowledge") or "DEFER" in kinds:
+            # Every number must come from the knowledge passages, the task/profile or the lead's own message.
+            allowed = _num(last_human_text(state)) | _num(turn.get("system", ""))
+            if _num(draft) - allowed:
                 problems.append("ungrounded_figure")
-            elif "DEFER" in kinds:
-                allowed = _num(last_human_text(state)) | _num(turn.get("task", ""))
-                if _num(draft) - allowed:
-                    problems.append("ungrounded_figure")
+        if not turn.get("knowledge") and re.search(r"\d\s*%|٪|percent|بالمي[هة]", to_western_digits(draft).lower()):
+            problems.append("ungrounded_figure")
         return problems
 
     async def persona_guard(self, state: dict) -> dict:

@@ -1,0 +1,146 @@
+[
+  {
+    "id": "saudi-rett-rate",
+    "country": "SAUDI",
+    "topic": "tax",
+    "title_en": "Saudi Real Estate Transaction Tax (RETT) rate and how it is calculated",
+    "title_ar": "نسبة ضريبة التصرفات العقارية في السعودية وطريقة احتسابها",
+    "en": "Saudi Arabia charges a Real Estate Transaction Tax (RETT) of 5% on real estate transactions, including sales. It is calculated on the agreed price, but not less than the property's fair market value, and applies to each transaction separately. The current RETT Law took effect on 10 April 2025 (ZATCA).",
+    "ar": "تفرض المملكة العربية السعودية ضريبة التصرفات العقارية بنسبة 5% على التصرفات العقارية ومنها البيع. وتُحسب على القيمة المتفق عليها على ألا تقل عن القيمة السوقية العادلة للعقار، وتُطبق على كل تصرف على حدة. وقد دخل نظام ضريبة التصرفات العقارية الحالي حيز التنفيذ في 10 أبريل 2025 (هيئة الزكاة والضريبة والجمارك).",
+    "sources": [
+      {
+        "name": "ZATCA - Real Estate Transaction Tax Law",
+        "url": "https://zatca.gov.sa/en/RulesRegulations/Taxes/Pages/RETTRegulation.aspx"
+      },
+      {
+        "name": "ZATCA - Detailed Guideline for RETT (Version 6, May 2026)",
+        "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Detailed-Guideline-for-RETT-In-accordance-with-provision-of-RETT-Law-and-its-Implementing-Regulations.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-rett-vat",
+    "country": "SAUDI",
+    "topic": "tax",
+    "title_en": "Is VAT charged on buying property in Saudi Arabia?",
+    "title_ar": "هل تُفرض ضريبة القيمة المضافة على شراء العقار في السعودية؟",
+    "en": "In Saudi Arabia, sales of real estate that transfer ownership are exempt from VAT; the 5% Real Estate Transaction Tax applies instead (ZATCA).",
+    "ar": "في السعودية، يُعفى بيع العقار الذي تنتقل به الملكية من ضريبة القيمة المضافة، وتُطبق بدلاً منها ضريبة التصرفات العقارية بنسبة 5% (هيئة الزكاة والضريبة والجمارك).",
+    "sources": [
+      {
+        "name": "ZATCA - Detailed Guideline for RETT (Version 6, May 2026)",
+        "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Detailed-Guideline-for-RETT-In-accordance-with-provision-of-RETT-Law-and-its-Implementing-Regulations.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-rett-who-pays",
+    "country": "SAUDI",
+    "topic": "tax",
+    "title_en": "Who pays the Saudi RETT and when (seller or buyer, before the deed transfer)",
+    "title_ar": "من يدفع ضريبة التصرفات العقارية في السعودية ومتى (البائع أو المشتري، قبل نقل الصك)",
+    "en": "The seller is legally responsible to ZATCA for paying the Saudi RETT, even if the parties agree that the buyer pays it. It must be paid on or before the date the transaction is notarised, and the notary will not complete the transfer until the tax is paid or an exemption is proven.",
+    "ar": "البائع هو المسؤول نظاماً أمام هيئة الزكاة والضريبة والجمارك عن سداد ضريبة التصرفات العقارية، حتى لو اتفق الطرفان على أن يدفعها المشتري. ويجب سدادها في تاريخ توثيق التصرف أو قبله، ولا يُستكمل نقل الملكية لدى الموثق قبل سداد الضريبة أو إثبات الإعفاء.",
+    "sources": [
+      {
+        "name": "ZATCA - Detailed Guideline for RETT (Version 6, May 2026)",
+        "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Detailed-Guideline-for-RETT-In-accordance-with-provision-of-RETT-Law-and-its-Implementing-Regulations.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-rett-first-home",
+    "country": "SAUDI",
+    "topic": "tax",
+    "title_en": "RETT relief on a Saudi citizen's first home",
+    "title_ar": "إعفاء المسكن الأول للمواطن السعودي من ضريبة التصرفات العقارية",
+    "en": "For a Saudi citizen's first home, the state bears the RETT on up to SAR 1,000,000 of the price; 5% is due only on the amount above SAR 1,000,000. The buyer gets a First Home certificate from the Ministry of Municipalities and Housing portal (housing.gov.sa).",
+    "ar": "بالنسبة للمسكن الأول للمواطن السعودي، تتحمل الدولة ضريبة التصرفات العقارية عن مبلغ يصل إلى 1,000,000 ريال من قيمة الشراء، وتُفرض نسبة 5% فقط على ما يزيد على 1,000,000 ريال. ويحصل المشتري على شهادة «المسكن الأول» من بوابة وزارة البلديات والإسكان (housing.gov.sa).",
+    "sources": [
+      {
+        "name": "ZATCA - Detailed Guideline for RETT (Version 6, May 2026)",
+        "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Detailed-Guideline-for-RETT-In-accordance-with-provision-of-RETT-Law-and-its-Implementing-Regulations.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-non-saudi-ownership-law",
+    "country": "SAUDI",
+    "topic": "ownership",
+    "title_en": "Can foreigners (non-Saudis) buy property in Saudi Arabia? Non-Saudi ownership law and zones",
+    "title_ar": "هل يحق للأجانب (غير السعوديين) تملك العقار في السعودية؟ نظام تملك غير السعوديين والنطاقات الجغرافية",
+    "en": "Saudi Arabia's updated Law of Real Estate Ownership by Non-Saudis took effect on 22 January 2026. Non-Saudi individuals (living in the Kingdom or abroad) and companies can own property within geographic zones set by the Council of Ministers, which cover areas of Riyadh, Jeddah, Makkah and Madinah. Applications go through REGA's Saudi Properties platform (saudiproperties.rega.gov.sa).",
+    "ar": "دخل نظام تملك غير السعوديين للعقار المحدّث حيز التنفيذ في 22 يناير 2026. ويحق للأفراد غير السعوديين (المقيمين في المملكة أو خارجها) وللشركات تملّك العقار داخل النطاقات الجغرافية التي يحددها مجلس الوزراء، وتشمل مناطق في الرياض وجدة ومكة المكرمة والمدينة المنورة. ويُقدَّم الطلب عبر منصة Saudi Properties التابعة للهيئة العامة للعقار (saudiproperties.rega.gov.sa).",
+    "sources": [
+      {
+        "name": "REGA - Non-Saudi Property Ownership System Enters into Force (news, 22 Jan 2026)",
+        "url": "https://rega.gov.sa/en/media-center/news/rega-non-saudi-property-ownership-system-enters-into-force-as-of-today/"
+      },
+      {
+        "name": "REGA - Law of Real Estate Ownership by Non-Saudis",
+        "url": "https://rega.gov.sa/media/qpobkwq5/law-of-real-estate-ownership-and-investment-by-non-saudis.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-resident-one-home",
+    "country": "SAUDI",
+    "topic": "ownership",
+    "title_en": "Can a foreign resident (iqama holder) own a home in Saudi Arabia outside the zones?",
+    "title_ar": "هل يحق للمقيم الأجنبي (حامل الإقامة) تملك مسكن في السعودية خارج النطاقات؟",
+    "en": "Under the Law of Real Estate Ownership by Non-Saudis, a non-Saudi who legally resides in Saudi Arabia may also own one property outside the designated zones as their residence, except in Makkah and Madinah.",
+    "ar": "بموجب نظام تملك غير السعوديين للعقار، يجوز لغير السعودي المقيم في المملكة إقامة نظامية أن يتملك عقاراً واحداً خارج النطاقات المحددة لغرض السكن، باستثناء مكة المكرمة والمدينة المنورة.",
+    "sources": [
+      {
+        "name": "REGA - Law of Real Estate Ownership by Non-Saudis (Article 2)",
+        "url": "https://rega.gov.sa/media/qpobkwq5/law-of-real-estate-ownership-and-investment-by-non-saudis.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-makkah-madinah",
+    "country": "SAUDI",
+    "topic": "ownership",
+    "title_en": "Foreign ownership of property in Makkah and Madinah",
+    "title_ar": "تملك غير السعوديين للعقار في مكة المكرمة والمدينة المنورة",
+    "en": "In Makkah and Madinah, property ownership by non-Saudi individuals is limited to Muslims; Saudi companies with non-Saudi shareholders may also own there, within the designated zones (REGA).",
+    "ar": "في مكة المكرمة والمدينة المنورة يقتصر تملك الأفراد غير السعوديين للعقار على المسلمين، كما يجوز للشركات السعودية التي لديها مساهمون غير سعوديين التملك فيهما ضمن النطاقات المحددة (الهيئة العامة للعقار).",
+    "sources": [
+      {
+        "name": "REGA - Q&A about the Updated Law of Real Estate Ownership by Non-Saudis",
+        "url": "https://rega.gov.sa/media/z1kaovag/qa-about-updated-law-of-real-estate-ownership-by-non-saudis.pdf"
+      },
+      {
+        "name": "REGA - Law of Real Estate Ownership by Non-Saudis (Articles 2 and 3)",
+        "url": "https://rega.gov.sa/media/qpobkwq5/law-of-real-estate-ownership-and-investment-by-non-saudis.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "saudi-non-saudi-fee",
+    "country": "SAUDI",
+    "topic": "fees",
+    "title_en": "Fees and taxes for foreigners (non-Saudis) buying property in Saudi Arabia",
+    "title_ar": "الرسوم والضرائب على غير السعوديين عند شراء عقار في السعودية",
+    "en": "REGA puts the total cost for non-Saudi ownership at 10%: the 5% Real Estate Transaction Tax plus a non-Saudi disposition fee of up to 5%. The exact fee is set by the implementing regulations based on the type and purpose of the property right and its location.",
+    "ar": "توضح الهيئة العامة للعقار أن إجمالي الرسوم على تملك غير السعوديين يبلغ 10%: ضريبة التصرفات العقارية بنسبة 5% إضافةً إلى رسم على تصرفات غير السعوديين لا يتجاوز 5%. وتحدد اللائحة التنفيذية مقدار الرسم بحسب نوع الحق العيني والغرض منه وموقعه الجغرافي.",
+    "sources": [
+      {
+        "name": "REGA - Q&A about the Updated Law of Real Estate Ownership by Non-Saudis",
+        "url": "https://rega.gov.sa/media/z1kaovag/qa-about-updated-law-of-real-estate-ownership-by-non-saudis.pdf"
+      },
+      {
+        "name": "REGA - Law of Real Estate Ownership by Non-Saudis (Articles 9 and 13)",
+        "url": "https://rega.gov.sa/media/qpobkwq5/law-of-real-estate-ownership-and-investment-by-non-saudis.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  }
+]

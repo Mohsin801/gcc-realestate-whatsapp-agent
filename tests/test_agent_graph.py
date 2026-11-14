@@ -1,5 +1,6 @@
 """The LangGraph agent end to end with a scripted LLM, in-memory checkpointer and fake calendar."""
 import time
+from pathlib import Path
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
@@ -15,6 +16,7 @@ from services.inbound import IncomingMessage
 from tests.agent_fakes import AR_REPLY, EN_REPLY, FakeKnowledge, FakeLLM, FakeScheduler
 
 PHONE = "971501234567"
+FACTS_DIR = Path(__file__).resolve().parents[1] / "knowledge_base" / "facts"  # conftest chdirs into tests/
 CONFIG = {"configurable": {"thread_id": PHONE}}
 
 
@@ -150,7 +152,77 @@ async def test_faq_without_knowledge_defers_and_never_states_figures():
     assert "DEFER" in parts(st)
     assert knowledge.queries == [("What are the Dubai Land Department fees?", "DUBAI", "en")]
     assert "4" not in " ".join(replies) and "%" not in " ".join(replies)
-    assert "consultant" in replies[0]
+    assert "confirm" in replies[0] and "call" in replies[0]
+
+
+async def test_question_about_another_market_keeps_target_country():
+    script = {**EN_SCRIPT, "And what's the property tax in Saudi?": Extraction(
+        message_intent="FAQ_QUESTION", target_country="SAUDI", question="What is the Saudi property transfer tax?")}
+    knowledge = FakeKnowledge([Passage(text="RETT is 5% of the property value (ZATCA).", source="https://zatca.gov.sa")])
+    agent, graph = make_agent(FakeLLM(script), knowledge=knowledge)
+    await say(agent, "Looking in Dubai, for investment")
+    await say(agent, "And what's the property tax in Saudi?")
+    st = await state_of(graph)
+    assert st["target_country"] == "DUBAI"  # still buying in Dubai
+    assert knowledge.queries[-1] == ("What is the Saudi property transfer tax?", "SAUDI", "en")
+    assert "ANSWER" in parts(st)
+
+
+async def test_answer_falls_back_to_passage_text_when_llm_is_down():
+    passage = Passage(text="RETT is 5% of the property value (ZATCA).", source="https://zatca.gov.sa",
+                      score=0.81, metadata={"doc_id": "saudi-rett-rate", "checked_on": "2026-11-14"})
+    agent, graph = make_agent(FakeLLM(fail_extract=True, fail_generate=True), knowledge=FakeKnowledge([passage]))
+    replies = await say(agent, "What is the property tax in Riyadh?")
+    st = await state_of(graph)
+    assert st["turn"]["draft_source"] == "template"
+    assert replies[0].startswith("RETT is 5% of the property value (ZATCA).")
+    assert st["turn"]["sources"] == [{"source": "https://zatca.gov.sa", "score": 0.81,
+                                      "doc_id": "saudi-rett-rate", "checked_on": "2026-11-14"}]
+
+
+async def test_figure_not_in_knowledge_is_rejected_then_replaced_by_template():
+    script = {"Saudi RETT?": Extraction(message_intent="FAQ_QUESTION", target_country="SAUDI",
+                                        question="What is the Saudi RETT?")}
+    passage = Passage(text="RETT is 5% of the property value (ZATCA).", source="https://zatca.gov.sa")
+    llm = FakeLLM(script, replies=["The RETT is 7% of the price.", "It's 2.5% plus 1,500 SAR in fees."])
+    agent, graph = make_agent(llm, knowledge=FakeKnowledge([passage]))
+    replies = await say(agent, "Saudi RETT?")
+    text = " ".join(replies)
+    assert "rejected (ungrounded_figure)" in llm.generate_systems[-1]
+    assert "7%" not in text and "2.5" not in text and "1,500" not in text
+    assert replies[0].startswith("RETT is 5% of the property value (ZATCA).")
+    assert (await state_of(graph))["turn"]["guard_problems"] == ["ungrounded_figure"]
+
+
+async def test_end_to_end_with_qdrant_knowledge_base():
+    from qdrant_client import AsyncQdrantClient
+
+    from tests.agent_fakes import FakeEmbedder
+    from tools.rag import KnowledgeBase, is_official_url, load_facts
+
+    client = AsyncQdrantClient(location=":memory:")
+    try:
+        kb = KnowledgeBase(client, FakeEmbedder(), settings(rag_score_threshold=0.25))
+        await kb.ingest_facts(load_facts(FACTS_DIR))
+        script = {"How much is the DLD fee?": Extraction(
+            message_intent="FAQ_QUESTION", target_country="DUBAI",
+            question="Dubai Land Department sale registration transfer fee")}
+        agent, graph = make_agent(FakeLLM(script, fail_generate=True), knowledge=kb)
+        replies = await say(agent, "How much is the DLD fee?")
+        st = await state_of(graph)
+        assert "ANSWER" in parts(st) and "4%" in replies[0]
+        top = st["turn"]["sources"][0]
+        assert top["doc_id"] == "dubai-dld-sale-registration-fee" and top["checked_on"] == "2026-11-14"
+        assert is_official_url(top["source"])
+
+        # Nothing relevant in the knowledge base: defer to the call, no figures.
+        script = {"Best football team?": Extraction(message_intent="FAQ_QUESTION", question="best football team")}
+        agent, graph = make_agent(FakeLLM(script, fail_generate=True), knowledge=kb)
+        replies = await say(agent, "Best football team?")
+        assert "DEFER" in parts(await state_of(graph))
+        assert "confirm" in replies[0] and "call" in replies[0]
+    finally:
+        await client.close()
 
 
 async def test_faq_with_knowledge_passes_passages_to_reply_prompt():

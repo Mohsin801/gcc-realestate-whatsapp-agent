@@ -1,8 +1,13 @@
-"""Test doubles for the agent: a scripted LLM, an in-memory scheduler and knowledge base."""
+"""Test doubles for the agent: a scripted LLM, an in-memory scheduler and knowledge base, a fake embedder."""
+import asyncio
+import hashlib
+import math
+import re
 from collections.abc import Callable
 
 from langchain_core.messages import HumanMessage
 
+from agent.normalize import normalize_text
 from agent.prompts import Extraction
 from agent.services import BookingResult, Passage
 
@@ -95,3 +100,37 @@ class FakeKnowledge:
     async def search(self, query, country, language):
         self.queries.append((query, country, language))
         return self.passages
+
+
+_STOP = {"the", "a", "an", "of", "in", "is", "are", "what", "for", "to", "and", "on", "it", "how", "much", "do",
+         "i", "can", "my", "be", "with", "by", "or", "if", "as", "at", "from", "this", "that", "في", "من", "على",
+         "هل", "كم", "ما", "عن"}
+
+
+class FakeEmbedder:
+    """Bag-of-words hashed into a small vector: texts sharing words are similar, unrelated ones are not."""
+
+    def __init__(self, dim: int = 256, delay: float = 0.0):
+        self.dim = dim
+        self.delay = delay
+        self.queries: list[str] = []
+        self.documents = 0
+
+    def _vec(self, text: str) -> list[float]:
+        v = [0.0] * self.dim
+        for tok in re.findall(r"\w+", normalize_text(text)):
+            if tok in _STOP or len(tok) < 2:
+                continue
+            v[int(hashlib.md5(tok.encode()).hexdigest(), 16) % self.dim] += 1.0
+        norm = math.sqrt(sum(x * x for x in v)) or 1.0
+        return [x / norm for x in v]
+
+    async def embed_documents(self, docs):
+        self.documents += len(docs)
+        return [self._vec(f"{title} {text}") for title, text in docs]
+
+    async def embed_query(self, text):
+        self.queries.append(text)
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        return self._vec(text)

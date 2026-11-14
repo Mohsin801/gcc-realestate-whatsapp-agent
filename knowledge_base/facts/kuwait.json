@@ -1,0 +1,86 @@
+[
+  {
+    "id": "kuwait-ownership-restricted",
+    "country": "KUWAIT",
+    "topic": "ownership",
+    "title_en": "Can foreigners (non-Kuwaitis) buy property in Kuwait?",
+    "title_ar": "هل يحق للأجانب (غير الكويتيين) تملك العقارات في الكويت؟",
+    "en": "In Kuwait, Decree-Law No. 74 of 1979 restricts the right to own real estate (full ownership, bare ownership or usufruct) to Kuwaiti citizens, with limited exceptions set by law, such as nationals of Arab countries under the law's conditions and diplomatic missions under conditions. Other non-Kuwaitis can own real estate only within these exceptions.",
+    "ar": "في الكويت، يقصر المرسوم بالقانون رقم 74 لسنة 1979 حق تملك العقارات (الملكية التامة أو ملكية الرقبة أو حق الانتفاع) على المواطنين الكويتيين، مع استثناءات محدودة نص عليها القانون، منها من ينتمي إلى جنسية بلد عربي وفق الضوابط التي حددها القانون، والبعثات الدبلوماسية بشروط. ولا يتملك غير الكويتيين العقارات إلا في حدود هذه الاستثناءات.",
+    "sources": [
+      {
+        "name": "Kuwait Al-Youm (Official Gazette) No. 1726, 16 Feb 2025 - Decree-Law No. 7 of 2025 and its explanatory memorandum (published by KDIPA)",
+        "url": "https://kdipa.gov.kw/wp-content/uploads/2026/04/مرسوم-بقانون-رقم-7-لسنة-2025-بتعديل-بعض-احكام-مرسوم-بقانون-رقم-74-لسنة-1979-بتنظيم-تملك-غير-الكوتيين-للعقارات.pdf"
+      },
+      {
+        "name": "KDIPA - Economic Laws",
+        "url": "https://kdipa.gov.kw/ar/invest-in-kuwait/economic-laws/"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "kuwait-gcc-citizens",
+    "country": "KUWAIT",
+    "topic": "ownership",
+    "title_en": "Can GCC citizens own property in Kuwait?",
+    "title_ar": "هل يحق لمواطني دول مجلس التعاون الخليجي تملك العقارات في الكويت؟",
+    "en": "GCC citizens are treated like Kuwaitis for owning land and built property in Kuwait, under Law No. 1 of 2004 (amended by Law No. 18 of 2009) and subject to that law's conditions.",
+    "ar": "يُعامَل مواطنو دول مجلس التعاون الخليجي معاملة الكويتيين في تملك الأراضي والعقارات المبنية في الكويت، وفقاً للقانون رقم 1 لسنة 2004 المعدل بالقانون رقم 18 لسنة 2009، وبالشروط الواردة فيه.",
+    "sources": [
+      {
+        "name": "Kuwait Al-Youm (Official Gazette) No. 1726, 16 Feb 2025 - Decree-Law No. 7 of 2025 and its explanatory memorandum (published by KDIPA)",
+        "url": "https://kdipa.gov.kw/wp-content/uploads/2026/04/مرسوم-بقانون-رقم-7-لسنة-2025-بتعديل-بعض-احكام-مرسوم-بقانون-رقم-74-لسنة-1979-بتنظيم-تملك-غير-الكوتيين-للعقارات.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "kuwait-inheritance",
+    "country": "KUWAIT",
+    "topic": "ownership",
+    "title_en": "Inheriting property in Kuwait as a non-Kuwaiti (including from a Kuwaiti mother)",
+    "title_ar": "وراثة غير الكويتي لعقار في الكويت (بما في ذلك الميراث عن الأم الكويتية)",
+    "en": "Under Article 4 as amended, an Arab national who inherits property in Kuwait and owns no other property there must dispose of it within two years of inheriting it, otherwise it is sold compulsorily, unless a decree exempts them. Since Decree-Law No. 7 of 2025 (Official Gazette, 16 February 2025), they are exempt if they inherited it from their Kuwaiti mother.",
+    "ar": "بحسب المادة 4 بعد تعديلها، إذا ورث العربي عقاراً أو جزءاً منه في الكويت ولم يكن مالكاً لعقار غيره، وجب عليه التصرف فيه خلال سنتين من تاريخ أيلولته إليه وإلا بيع جبراً عنه، ما لم يصدر مرسوم بإعفائه. ومنذ المرسوم بقانون رقم 7 لسنة 2025 (الجريدة الرسمية، 16 فبراير 2025) يُعفى من ذلك إذا آلت إليه الملكية بالميراث عن والدته الكويتية.",
+    "sources": [
+      {
+        "name": "Kuwait Al-Youm (Official Gazette) No. 1726, 16 Feb 2025 - Decree-Law No. 7 of 2025, Article 1 (published by KDIPA)",
+        "url": "https://kdipa.gov.kw/wp-content/uploads/2026/04/مرسوم-بقانون-رقم-7-لسنة-2025-بتعديل-بعض-احكام-مرسوم-بقانون-رقم-74-لسنة-1979-بتنظيم-تملك-غير-الكوتيين-للعقارات.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "kuwait-companies-funds",
+    "country": "KUWAIT",
+    "topic": "ownership",
+    "title_en": "Can companies, real estate funds or investment portfolios with foreign partners own property in Kuwait?",
+    "title_ar": "هل يحق للشركات والصناديق العقارية والمحافظ الاستثمارية التي فيها شركاء أجانب تملك العقارات في الكويت؟",
+    "en": "Since Decree-Law No. 7 of 2025, companies with non-Kuwaiti partners that are listed on Kuwait's licensed stock exchanges, as well as real estate funds and licensed investment portfolios whose purposes include dealing in real estate, may own property in Kuwait under controls set by decree.",
+    "ar": "منذ المرسوم بقانون رقم 7 لسنة 2025، يجوز للشركات التي يشترك فيها شركاء غير كويتيين والمدرجة في البورصات المرخصة في الكويت، وكذلك الصناديق العقارية والمحافظ الاستثمارية المرخصة التي من أغراضها التعامل في العقارات، تملّك العقارات وفق الضوابط التي يصدر بها مرسوم.",
+    "sources": [
+      {
+        "name": "Kuwait Al-Youm (Official Gazette) No. 1726, 16 Feb 2025 - Decree-Law No. 7 of 2025, Article 2 (published by KDIPA)",
+        "url": "https://kdipa.gov.kw/wp-content/uploads/2026/04/مرسوم-بقانون-رقم-7-لسنة-2025-بتعديل-بعض-احكام-مرسوم-بقانون-رقم-74-لسنة-1979-بتنظيم-تملك-غير-الكوتيين-للعقارات.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  },
+  {
+    "id": "kuwait-investment-entities",
+    "country": "KUWAIT",
+    "topic": "ownership",
+    "title_en": "Can a licensed foreign investment entity own property in Kuwait for its business?",
+    "title_ar": "هل يحق للكيان الاستثماري الأجنبي المرخص تملك عقار في الكويت لمزاولة نشاطه؟",
+    "en": "Since Decree-Law No. 7 of 2025, investment entities licensed under Law No. 116 of 2013 (direct investment promotion) may be permitted to own the property they need for their activities or to house their staff, but not for real estate speculation, under rules set by decree.",
+    "ar": "منذ المرسوم بقانون رقم 7 لسنة 2025، يجوز الإذن للكيانات الاستثمارية المرخصة وفق القانون رقم 116 لسنة 2013 (تشجيع الاستثمار المباشر) بتملك العقارات اللازمة لمباشرة أنشطتها أو لسكن العاملين بها، بشرط ألا يكون الغرض المضاربة العقارية، وفق القواعد التي يصدر بها مرسوم.",
+    "sources": [
+      {
+        "name": "Kuwait Al-Youm (Official Gazette) No. 1726, 16 Feb 2025 - Decree-Law No. 7 of 2025, Article 2 (published by KDIPA)",
+        "url": "https://kdipa.gov.kw/wp-content/uploads/2026/04/مرسوم-بقانون-رقم-7-لسنة-2025-بتعديل-بعض-احكام-مرسوم-بقانون-رقم-74-لسنة-1979-بتنظيم-تملك-غير-الكوتيين-للعقارات.pdf"
+      }
+    ],
+    "checked_on": "2026-11-14"
+  }
+]

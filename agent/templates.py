@@ -91,9 +91,10 @@ RESCHEDULE = {
     "en": "No problem at all. I'll let our consultant know and they'll reach out to arrange a new time.",
     "ar": "ولا يهمك، ببلغ مستشارنا وبيتواصل معك عشان نرتب وقت ثاني.",
 }
+# Used when the knowledge base has no verified answer: never guess, confirm on the call instead.
 DEFER_QUESTION = {
-    "en": "Good question. I want to give you exact, up-to-date figures, so our consultant will go through that with you on the call.",
-    "ar": "سؤال مهم. أبي أعطيك معلومات دقيقة ومحدثة، فمستشارنا بيشرح لك هالنقطة بالتفصيل في المكالمة.",
+    "en": "Good question! I want to give you exact, up-to-date details, so I'll confirm that for you on the call.",
+    "ar": "سؤال في محله! أبي أعطيك معلومة دقيقة ومحدثة، عشان كذا بأكد لك هالنقطة في المكالمة.",
 }
 ACK = {
     "en": "Got it, thank you!",
