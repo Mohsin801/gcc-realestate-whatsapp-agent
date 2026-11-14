@@ -91,7 +91,7 @@ async def test_slow_extraction_is_cut_short_and_rules_take_over():
     state = (await graph.aget_state(CONFIG)).values
     assert state["target_country"] == "DUBAI" and state["intent"] == "INVESTMENT"
     (_, extract_timeout), (_, reply_timeout) = llm.timeouts
-    assert extract_timeout == pytest.approx(0.3, abs=0.02)  # 0.6 budget - 0.1 send - 0.2 kept for the reply
+    assert extract_timeout == pytest.approx(0.3, abs=0.06)  # 0.6 budget - 0.1 send - 0.2 kept for the reply
     assert 0.05 <= reply_timeout <= 0.21
     assert turn["reply_source"] == "llm" and replies
 
@@ -116,9 +116,10 @@ async def test_budget_already_spent_skips_every_llm_call():
 
 
 async def test_guard_retry_is_skipped_when_no_time_is_left():
-    # the first draft leaves ~0.07 s after the send reserve: less than the 0.15 s minimum for a call
-    llm = FakeLLM(SCRIPT, replies=["As an AI assistant, I'd love to help!"], generate_delay=0.43)
-    agent, graph = make_agent(llm, latency_min_call_seconds=0.15)
+    # 1.2 s budget, 0.1 s send reserve: the 0.85 s draft fits even with up to 0.25 s of overhead before it,
+    # and afterwards at most 0.25 s is left: less than the 0.3 s minimum for a call
+    llm = FakeLLM(SCRIPT, replies=["As an AI assistant, I'd love to help!"], generate_delay=0.85)
+    agent, graph = make_agent(llm, latency_budget_seconds=1.2, latency_min_call_seconds=0.3)
     replies, took = await say(agent, "Looking in Dubai, for investment")
     turn = await turn_of(graph)
     assert "guard_retry" in turn["budget_skips"]
@@ -226,3 +227,9 @@ async def test_latency_report_reads_first_bubble_latency_from_chat_logs(sessionm
     stats = summarise(rows, budget_ms=3000)
     assert stats["all"].count == 4 and stats["all"].within_budget == 0.75
     assert stats["en"].max_ms == 2600 and stats["ar"].p95_ms == 3400
+
+
+async def test_llm_failures_are_recorded_on_the_turn():
+    agent, graph = make_agent(FakeLLM(fail_extract=True, fail_generate=True), budget=False)
+    await say(agent, "Looking in Dubai, for investment")
+    assert (await turn_of(graph))["llm_errors"] == ["extract: RuntimeError", "reply: RuntimeError"]

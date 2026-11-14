@@ -142,6 +142,8 @@ Set the threshold between the two groups' scores. Repeat this whenever the embed
 
 Without an embedding model configured, the app starts with the knowledge base switched off, and every legal or tax question is deferred to the call.
 
+**Without Docker:** set `QDRANT_PATH=.qdrant` to use Qdrant's embedded mode, which stores the data in that folder with no server. Only one process can open the folder at a time, so run `ingest`, the evaluation, the CLI or the app one after another. Use a Qdrant server in production.
+
 ## Latency and evaluation (Phase 5)
 The spec's Definition of Done asks for a reply in **under 3 seconds** in both English and Arabic, and for leads to be qualified and questions answered **without hallucinating**.
 
@@ -178,7 +180,15 @@ A call that would get less than `LATENCY_MIN_CALL_SECONDS` is skipped. Skipped s
 .venv\Scripts\python scripts\eval_agent.py                   # live Gemini, no knowledge base
 .venv\Scripts\python scripts\eval_agent.py --kb --repeat 5   # live Gemini + Qdrant, latency over 5 runs
 ```
-The report lists every failed check, latency per language, how often the reply came from the LLM or from a template, steps skipped for time, and the p95 of each graph step. Cases marked `"requires": ["llm"]` are skipped offline. Run the live evaluation after changing the model, the prompts or the latency settings. If `extract` or `respond` p95 is close to the budget, try `GEMINI_THINKING_LEVEL=minimal` or a faster model before raising the budget.
+The report lists every failed check, latency per language, how often the reply came from the LLM or from a template, steps skipped for time, and the p95 of each graph step. Cases marked `"requires": ["llm"]` are skipped offline. Run the live evaluation after changing the model, the prompts or the latency settings. If `extract` or `respond` p95 is close to the budget, try a lower `GEMINI_THINKING_LEVEL` or a faster model before raising the budget.
+
+In a live run, any LLM call that fails with an error (quota, invalid request, outage) fails that turn (`llm` check). Without this, the rule and template fallbacks would make a broken LLM look like a passing run. Calls cut short by the latency budget are not failures; they are counted under "LLM errors" as `TimeoutError`. On the Gemini free tier (5 requests per minute per model), add `--rpm 5`: the evaluation then waits between turns, and the waiting is not counted as latency.
+
+**Gemini settings that break every call:**
+- The Gemini API refuses request deadlines under 10 s. The Gemini client is therefore always given at least 10 s, and the real `LLM_TIMEOUT_SECONDS` cap is applied by our own timeout.
+- Not every model accepts every `GEMINI_THINKING_LEVEL`: `gemini-3.8-flash` rejects `minimal`. The default is `low`.
+
+If either is wrong, the agent still answers on rules and templates; the startup warm-up logs a warning.
 
 ### Running tests
 ```

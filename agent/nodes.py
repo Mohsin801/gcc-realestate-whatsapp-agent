@@ -119,6 +119,11 @@ class AgentNodes:
     def _add_part(turn: dict, kind: str, **data) -> None:
         turn.setdefault("parts", []).append({"kind": kind, **data})
 
+    @staticmethod
+    def _llm_failed(turn: dict, step: str, exc: Exception) -> None:
+        """Record a failed LLM call (``turn["llm_errors"]``: "step: ErrorType") for logs and the evaluation."""
+        turn.setdefault("llm_errors", []).append(f"{step}: {type(exc).__name__}")
+
     def _allow(self, config: RunnableConfig | None, turn: dict, step: str, timeout: float, *,
                keep: float = 0.0) -> float | None:
         """Seconds ``step`` may take within the turn's latency budget, or ``None`` to skip it (recorded in
@@ -165,7 +170,8 @@ class AgentNodes:
             try:
                 extraction, source = await self.llm.extract(system, self._history(state), Extraction,
                                                             timeout=timeout), "llm"
-            except Exception:  # noqa: BLE001 - LLM down/slow/invalid: rules take over
+            except Exception as exc:  # noqa: BLE001 - LLM down/slow/invalid: rules take over
+                self._llm_failed(turn, "extract", exc)
                 log.warning("LLM extraction failed, using rules", exc_info=True)
         if extraction is None:
             extraction, source = self._rule_extract(text, state, offered), "rules"
@@ -501,7 +507,8 @@ class AgentNodes:
         if timeout is not None:
             try:
                 draft, source = await self.llm.generate(system, self._history(state), timeout=timeout), "llm"
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                self._llm_failed(turn, "reply", exc)
                 log.warning("LLM reply failed, using template", exc_info=True)
         turn["draft"] = draft if draft else turn["fallback"]
         turn["draft_source"] = source if draft else "template"
@@ -547,7 +554,8 @@ class AgentNodes:
                 )
                 problems = self._problems(retry, state, turn)
                 draft, source = retry, "llm_retry"
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                self._llm_failed(turn, "guard_retry", exc)
                 log.warning("persona-guard regeneration failed", exc_info=True)
         if problems or not draft:
             if problems:

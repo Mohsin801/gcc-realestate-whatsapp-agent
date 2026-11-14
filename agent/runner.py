@@ -57,6 +57,7 @@ class AgentService:
                 "reply_source": turn.get("reply_source"),
                 "timings_ms": turn.get("timings"),
                 "budget_skips": turn.get("budget_skips"),
+                "llm_errors": turn.get("llm_errors"),
                 "agent_done_ms": deadline.elapsed_ms() if deadline else None,
                 "booking_status": result.get("booking_status"),
                 "is_qualified": result.get("is_qualified"),

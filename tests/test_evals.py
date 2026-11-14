@@ -93,3 +93,45 @@ def test_check_flags_slow_turn_state_parts_and_knowledge():
     fails = _check(["I'll confirm on the call."], turn=turn, expect={"state": {"target_country": "DUBAI"},
                    "parts": ["ASK"], "kb": ["dubai-dld-sale-registration-fee"]}, has_knowledge=True)
     assert {f.split(":")[0] for f in fails} == {"state", "parts", "knowledge"}
+
+
+# --- live-mode honesty: a broken LLM must not pass behind the fallbacks ---------------------------------
+def test_check_flags_llm_errors_but_not_budget_timeouts():
+    broken = {"system": "", "llm_errors": ["extract: GoogleRateLimitError", "reply: ClientError"]}
+    [fail] = _check(["Hi!"], turn=broken)
+    assert fail.startswith("llm:") and "GoogleRateLimitError" in fail
+    assert not _check(["Hi!"], turn={"system": "", "llm_errors": ["reply: TimeoutError"]})
+
+
+async def test_failing_llm_fails_the_live_eval():
+    class QuotaError(Exception):
+        pass
+
+    class QuotaLLM(FakeLLM):
+        async def generate(self, system, messages, timeout=None):
+            raise QuotaError("429 RESOURCE_EXHAUSTED")
+
+    case = next(c for c in load_cases() if c["id"] == "en-are-you-a-bot")
+    report = await run_eval(settings(), llm=QuotaLLM(), cases=[case])
+    assert not report.passed
+    assert report.as_dict()["llm_errors"]["reply: QuotaError"] == 2
+    assert report.as_dict()["failed_checks"]["llm"] == 2
+
+
+async def test_request_pacer_waits_between_turns_to_stay_under_rpm(monkeypatch):
+    import evals.harness as harness
+
+    slept: list[float] = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+        pacer.calls = []  # the minute has passed
+
+    monkeypatch.setattr(harness.asyncio, "sleep", fake_sleep)
+    pacer = harness.RequestPacer(FakeLLM(), rpm=5, per_turn=3)
+    assert await pacer.ready() == 0
+    await pacer.generate("s", [])
+    await pacer.generate("s", [])
+    assert await pacer.ready() == 0  # 2 used + 3 more = 5: fits
+    await pacer.generate("s", [])
+    assert await pacer.ready() > 0 and len(slept) == 1  # 3 used + 3 more > 5: wait for the window

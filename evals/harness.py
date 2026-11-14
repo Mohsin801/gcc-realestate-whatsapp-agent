@@ -12,7 +12,10 @@ Universal checks (every turn):
                      knowledge passages, the lead profile, the task). The code-written appendix (slot list, booking
                      time, Meet link) is exempt. Stricter than the persona guard, which only checks question turns;
   * ``latency``      the agent finished within ``LATENCY_BUDGET_SECONDS - LATENCY_SEND_RESERVE_SECONDS``, leaving the
-                     send reserve for the Meta API (measured, not simulated, in live runs).
+                     send reserve for the Meta API (measured, not simulated, in live runs);
+  * ``llm``          with an LLM, no call failed with an error (quota, bad request, outage). The fallbacks would
+                     otherwise hide a broken LLM behind passing turns. A timeout is not a failure here: cutting
+                     a slow call short is the latency budget doing its job (see ``llm_timeouts`` in the report).
 
 Per-turn expectations (``expect``):
   * ``language``     override of the case language for this turn;
@@ -26,6 +29,7 @@ Per-turn expectations (``expect``):
 Cases may declare ``"requires": ["llm"]`` (rules alone are not expected to handle them); such cases are skipped
 when the agent runs without an LLM.
 """
+import asyncio
 import json
 import time
 from collections import Counter, defaultdict
@@ -113,6 +117,7 @@ class TurnResult:
     sources: list[str] = field(default_factory=list)
     extraction_source: str | None = None
     reply_source: str | None = None
+    llm_errors: list[str] = field(default_factory=list)
     budget_skips: list[str] = field(default_factory=list)
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -172,6 +177,7 @@ class Report:
             "reply_source": dict(Counter(t.reply_source for t in turns)),
             "extraction_source": dict(Counter(t.extraction_source for t in turns)),
             "budget_skips": dict(Counter(s for t in turns for s in t.budget_skips)),
+            "llm_errors": dict(Counter(e for t in turns for e in t.llm_errors)),
             "node_p95_ms": {n: percentile(v, 95) for n, v in sorted(node_ms.items())},
             "failures": [
                 {"case": t.case_id, "turn": t.index, "user": t.user, "replies": t.replies, "failures": t.failures}
@@ -185,6 +191,9 @@ def check_turn(expect: dict, *, language: str, replies: list[str], turn: dict, s
                settings: Settings, latency_ms: float, budget_ms: float, has_knowledge: bool) -> list[str]:
     """Return the failed checks for one turn, as ``"check: detail"`` strings (empty list = pass)."""
     failures: list[str] = []
+    errors = [e for e in turn.get("llm_errors") or [] if not e.endswith("TimeoutError")]
+    if errors:
+        failures.append(f"llm: call failed ({', '.join(errors)}); the reply came from a fallback")
     want_lang = expect.get("language", language)
 
     if not replies or not all(r and r.strip() for r in replies):
@@ -257,6 +266,35 @@ def load_cases(path: str | Path = CASES_FILE) -> list[dict]:
     return cases
 
 
+class RequestPacer:
+    """Keeps an LLM under ``rpm`` requests per minute (e.g. the Gemini free tier's 5). It waits *between* turns,
+    so a turn starts only when its worst case (``per_turn`` calls) fits; the wait never counts as latency."""
+
+    def __init__(self, llm, rpm: int, per_turn: int = 3):
+        self.llm, self.rpm, self.per_turn = llm, rpm, min(per_turn, rpm)
+        self.calls: list[float] = []
+
+    async def extract(self, *args, **kwargs):
+        self.calls.append(time.monotonic())
+        return await self.llm.extract(*args, **kwargs)
+
+    async def generate(self, *args, **kwargs):
+        self.calls.append(time.monotonic())
+        return await self.llm.generate(*args, **kwargs)
+
+    async def ready(self) -> float:
+        """Sleep until ``per_turn`` more calls fit in the last minute; returns the seconds waited."""
+        waited = 0.0
+        while True:
+            now = time.monotonic()
+            self.calls = [t for t in self.calls if now - t < 60]
+            if len(self.calls) + self.per_turn <= self.rpm:
+                return waited
+            pause = 60 - (now - self.calls[0]) + 0.5
+            await asyncio.sleep(pause)
+            waited += pause
+
+
 def make_agent(settings: Settings, llm=None, knowledge: Knowledge | None = None, scheduler=None):
     graph = build_graph(llm=llm, settings=settings, scheduler=scheduler or DemoScheduler(settings),
                         knowledge=knowledge, checkpointer=InMemorySaver())
@@ -278,6 +316,8 @@ async def run_case(case: dict, settings: Settings, *, llm=None, knowledge: Knowl
         expect = step.get("expect") or {}
         user_texts.append(text)
         turn_lang = expect.get("language") or detect_language(text) or language
+        if isinstance(llm, RequestPacer):
+            await llm.ready()
         msg = IncomingMessage(f"wamid.eval.{case['id']}.{i}", phone, name, "text", text, turn_lang,
                               time.monotonic())
         try:
@@ -299,14 +339,18 @@ async def run_case(case: dict, settings: Settings, *, llm=None, knowledge: Knowl
             latency_ms=latency_ms, failures=failures, parts=[p["kind"] for p in turn.get("parts") or []],
             sources=[s.get("doc_id") for s in turn.get("sources") or []],
             extraction_source=turn.get("extraction_source"), reply_source=turn.get("reply_source"),
+            llm_errors=list(turn.get("llm_errors") or []),
             budget_skips=list(turn.get("budget_skips") or []), timings=dict(turn.get("timings") or {}),
         ))
     return CaseResult(case["id"], case.get("description", ""), results)
 
 
 async def run_eval(settings: Settings, *, llm=None, knowledge: Knowledge | None = None,
-                   cases: list[dict] | None = None, repeat: int = 1) -> Report:
-    """Run every case ``repeat`` times, one after another (so latencies are not skewed by concurrency)."""
+                   cases: list[dict] | None = None, repeat: int = 1, rpm: int | None = None) -> Report:
+    """Run every case ``repeat`` times, one after another (so latencies are not skewed by concurrency).
+    ``rpm`` paces the LLM below that many requests per minute (waiting between turns)."""
+    if llm is not None and rpm:
+        llm = RequestPacer(llm, rpm)
     results = []
     for _ in range(max(repeat, 1)):
         for case in cases if cases is not None else load_cases():

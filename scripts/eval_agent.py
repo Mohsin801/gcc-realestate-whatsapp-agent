@@ -4,6 +4,7 @@
     .\\.venv\\Scripts\\python.exe scripts\\eval_agent.py --kb             # + the Qdrant knowledge base (after an ingest)
     .\\.venv\\Scripts\\python.exe scripts\\eval_agent.py --no-llm         # rules + templates only (offline)
     .\\.venv\\Scripts\\python.exe scripts\\eval_agent.py --repeat 5 --json report.json
+    .\\.venv\\Scripts\\python.exe scripts\\eval_agent.py --rpm 5              # Gemini free tier: 5 requests/minute
     .\\.venv\\Scripts\\python.exe scripts\\eval_agent.py --case en-saudi-rett --case ar-dubai-dld-fee
 
 Cases run one after another, so the latencies are those of a single conversation. The calendar is a demo
@@ -53,6 +54,8 @@ def print_report(report: Report) -> None:
         print(f"  {label:<8} {report.latency(name).line()}")
     print("Reply source: " + ", ".join(f"{k}={v}" for k, v in summary["reply_source"].items()))
     print("Extraction source: " + ", ".join(f"{k}={v}" for k, v in summary["extraction_source"].items()))
+    if summary["llm_errors"]:
+        print("LLM errors: " + ", ".join(f"{k}={v}" for k, v in summary["llm_errors"].items()))
     if summary["budget_skips"]:
         print("Skipped for time: " + ", ".join(f"{k}={v}" for k, v in summary["budget_skips"].items()))
     print("Node p95 (ms): " + ", ".join(f"{k}={v:.0f}" for k, v in summary["node_p95_ms"].items()))
@@ -67,6 +70,8 @@ async def main() -> int:
     parser.add_argument("--case", action="append", help="only these case ids (repeatable)")
     parser.add_argument("--cases-file", help="another conversations file")
     parser.add_argument("--json", metavar="PATH", help="also write the full report as JSON")
+    parser.add_argument("--rpm", type=int, help="pace LLM requests below this many per minute (waits between "
+                                                "turns, not counted as latency), e.g. 5 on the Gemini free tier")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -79,7 +84,8 @@ async def main() -> int:
     llm = None if args.no_llm else build_llm(settings)
     knowledge, qdrant = build_knowledge(settings) if args.kb else (None, None)
     try:
-        report = await run_eval(settings, llm=llm, knowledge=knowledge, cases=cases, repeat=args.repeat)
+        report = await run_eval(settings, llm=llm, knowledge=knowledge, cases=cases, repeat=args.repeat,
+                                rpm=args.rpm)
     finally:
         if qdrant is not None:
             await qdrant.close()
