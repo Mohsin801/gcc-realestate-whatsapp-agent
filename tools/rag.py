@@ -493,8 +493,16 @@ class KnowledgeBase:
 def build_knowledge(settings: Settings) -> tuple[KnowledgeBase, AsyncQdrantClient]:
     """Production wiring. Raises ``KnowledgeConfigError`` when embeddings aren't configured."""
     embedder = GeminiEmbedder.from_settings(settings)
-    client = AsyncQdrantClient(
+    client = open_qdrant(settings)
+    return KnowledgeBase(client, embedder, settings), client
+
+
+def open_qdrant(settings: Settings) -> AsyncQdrantClient:
+    """Qdrant server at ``QDRANT_URL``, or embedded Qdrant in the ``QDRANT_PATH`` folder (no server needed)."""
+    if settings.qdrant_path:
+        Path(settings.qdrant_path).mkdir(parents=True, exist_ok=True)
+        return AsyncQdrantClient(path=settings.qdrant_path)
+    return AsyncQdrantClient(
         url=settings.qdrant_url, api_key=settings.qdrant_api_key or None,
         timeout=max(1, math.ceil(settings.qdrant_timeout_seconds)), check_compatibility=False,
     )
-    return KnowledgeBase(client, embedder, settings), client

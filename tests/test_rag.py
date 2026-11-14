@@ -152,3 +152,16 @@ def test_gemini_embedder_requires_configuration():
 
     with pytest.raises(KnowledgeConfigError):
         GeminiEmbedder.from_settings(Settings(_env_file=None, gemini_api_key="", gemini_embedding_model=""))
+
+
+async def test_qdrant_path_opens_embedded_qdrant_on_disk(tmp_path):
+    from tools.rag import build_knowledge
+
+    s = Settings(_env_file=None, gemini_api_key="k", gemini_embedding_model="m",
+                 qdrant_path=str(tmp_path / "qdrant"), qdrant_url="http://unreachable:1")
+    kb, client = build_knowledge(s)
+    try:
+        assert (tmp_path / "qdrant").is_dir()
+        assert (await client.get_collections()).collections == []  # works without any server
+    finally:
+        await client.close()

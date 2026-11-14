@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
+    # Embedded Qdrant (no server, e.g. without Docker): a folder for the data. When set, QDRANT_URL is ignored.
+    # Only one process can open the folder at a time, so use it for development, not with several workers.
+    qdrant_path: str = ""
 
     # --- WhatsApp (Meta Cloud API) ---
     whatsapp_token: str = ""
