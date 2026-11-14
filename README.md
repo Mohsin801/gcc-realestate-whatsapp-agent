@@ -24,7 +24,8 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
 | `tools/` | `calendar.py` (spec §4) + `scheduling.py` (slots, labels) + `calendar_providers/` (Google); `rag.py` (Qdrant knowledge base) |
 | `knowledge_base/facts/` | verified GCC legal/tax facts, one JSON file per country, each with official sources and the date checked |
 | `services/` | Redis helpers, WhatsApp client, background message processor |
-| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base |
+| `evals/` | conversation evaluation: `conversations.json` (scripted EN/AR leads for all four markets) and `harness.py` (the checks and the report) |
+| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base; `eval_agent.py`: run the evaluation; `latency_report.py`: production reply latency from `chat_logs` |
 | `db/`, `migrations/` | SQLAlchemy models + Alembic |
 
 ## Quick start
@@ -140,6 +141,44 @@ Set the threshold between the two groups' scores. Repeat this whenever the embed
 - How many freehold and usufruct areas Qatar has: the Ministry of Justice page shows them only as images.
 
 Without an embedding model configured, the app starts with the knowledge base switched off, and every legal or tax question is deferred to the call.
+
+## Latency and evaluation (Phase 5)
+The spec's Definition of Done asks for a reply in **under 3 seconds** in both English and Arabic, and for leads to be qualified and questions answered **without hallucinating**.
+
+**Latency budget.** Each turn has a deadline that starts when the webhook receives the message (`LATENCY_BUDGET_SECONDS`, default 3). Every slow call is capped to the time that is left:
+- **Extraction (LLM):** capped so that `LATENCY_REPLY_RESERVE_SECONDS` stays free for writing the reply. If it runs out, the rule-based extractor reads the message instead.
+- **Knowledge search:** capped the same way. If it runs out, the agent says it will confirm the details on the call.
+- **Reply (LLM):** capped so that `LATENCY_SEND_RESERVE_SECONDS` stays free for sending through Meta. If it runs out, the vetted template is sent.
+- **Persona-guard retry:** only attempted if there is still time; otherwise the template is sent.
+
+A call that would get less than `LATENCY_MIN_CALL_SECONDS` is skipped. Skipped steps are logged per turn (`budget_skips`). Calendar calls are **not** cut short, because a booking must never stop half-way; `AGENT_TIMEOUT_SECONDS` (20) is the hard cap on a turn.
+
+**What else keeps the reply fast:**
+- The read receipt and typing indicator are sent alongside the work, not before it.
+- All reply bubbles are sent before they are written to the database.
+- The LangGraph session is saved once per turn instead of after every step.
+- Google freeBusy is cached for `CALENDAR_BUSY_CACHE_SECONDS` (120) and fetched in the background as soon as the lead is one answer away from being offered slots. Bookings since the fetch are still excluded (they are read from Postgres), and booking always re-checks freeBusy live.
+- At startup one tiny LLM call, knowledge search and calendar fetch open the connections (`WARMUP_ON_STARTUP`).
+
+**Measuring it.** `chat_logs.latency_ms` on the first reply bubble is the time from webhook receipt to Meta accepting the reply. Replies over the budget are logged as warnings. The per-turn agent log includes how long each graph step took (`timings_ms`).
+```
+.venv\Scripts\python scripts\latency_report.py                # p50 / p95 / p99 / max per language, last 7 days
+.venv\Scripts\python scripts\latency_report.py --days 1 --check   # exit 1 if p95 is over the budget
+```
+
+**Evaluation.** `evals/conversations.json` holds scripted conversations: English and Gulf Arabic leads in Dubai, Saudi, Qatar and Kuwait, booking flows, legal/tax questions, an off-topic question, "are you a bot?" in both languages, and a language switch. Every turn is checked for:
+- the reply language;
+- no AI/bot disclosure;
+- at most 2 bubbles of 400 characters;
+- **no figure** that didn't come from the lead or from a verified knowledge-base passage (stricter than the live guard, which checks question turns only);
+- the agent finishing within the budget minus the send reserve;
+- the expected qualification state, reply steps and retrieved facts.
+```
+.venv\Scripts\python scripts\eval_agent.py --no-llm          # offline: rules + templates (also runs in pytest)
+.venv\Scripts\python scripts\eval_agent.py                   # live Gemini, no knowledge base
+.venv\Scripts\python scripts\eval_agent.py --kb --repeat 5   # live Gemini + Qdrant, latency over 5 runs
+```
+The report lists every failed check, latency per language, how often the reply came from the LLM or from a template, steps skipped for time, and the p95 of each graph step. Cases marked `"requires": ["llm"]` are skipped offline. Run the live evaluation after changing the model, the prompts or the latency settings. If `extract` or `respond` p95 is close to the budget, try `GEMINI_THINKING_LEVEL=minimal` or a faster model before raising the budget.
 
 ### Running tests
 ```

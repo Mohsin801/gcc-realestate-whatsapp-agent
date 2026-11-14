@@ -15,6 +15,8 @@ python -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e ".[dev]"   # 
 .\.venv\Scripts\python.exe -m pytest tests/test_scaffold.py::test_claim_wamid_is_idempotent   # single test
 docker compose up --build                  # postgres:16, redis:8, qdrant, app on :8000 (runs `alembic upgrade head` first)
 docker compose run --rm app pytest         # tests inside the container
+.\.venv\Scripts\python.exe scripts\eval_agent.py --no-llm   # conversation evaluation offline (live: drop --no-llm, add --kb)
+.\.venv\Scripts\python.exe scripts\latency_report.py        # production reply latency from chat_logs
 .\.venv\Scripts\python.exe -m alembic revision -m "msg"   # new migration (write it by hand; keep it in sync with db/models.py)
 ```
 Tests use `fakeredis` and `respx` mocks. pytest is set to `asyncio_mode = "auto"`, so async tests need no decorator. Unit tests must not need live Postgres, Redis, Qdrant, Meta or Google.
@@ -123,10 +125,32 @@ Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `
   - `answer_question` searches with that country, then the extraction's, then one matched in the question text, then the lead's target market. It records `turn["sources"]` (source, score, doc_id, checked_on).
     - With passages, it adds an ANSWER part whose template fallback is the top passage text.
     - With none, or when the search fails or times out, it adds DEFER ("I'll confirm that for you on the call").
-  - Guard: when there is knowledge or a DEFER, every number in the draft must appear in the system prompt (which holds the passages) or in the lead's message. `_num` drops thousands separators. With no knowledge, any percentage is rejected.
+  - Guard: when there is knowledge or a DEFER, every number in the draft must appear in the system prompt (which holds the passages) or in the lead's message. `numbers_in` drops thousands separators. With no knowledge, any percentage is rejected.
 - **`scripts/ingest_kb.py`:** `validate` / `ingest [--listings f] [--recreate]` / `search "q" --country --lang --all-scores`.
 - **Tests:** `tests/test_knowledge_facts.py`, `tests/test_rag.py` and the knowledge tests in `tests/test_agent_graph.py`. They use in-memory Qdrant (`AsyncQdrantClient(location=":memory:")`) with `FakeEmbedder`.
 - **Open item before production:** run `scripts/ingest_kb.py ingest` against the real Qdrant with the Gemini key, then calibrate `RAG_SCORE_THRESHOLD` with `search --all-scores`. The default of 0.6 hasn't been tested with real embeddings.
+
+### Latency and evaluation (Phase 5)
+- **Budget:** `core/latency.py` `Deadline` starts at `IncomingMessage.received_at` (webhook receipt). `AgentService(budget_seconds=LATENCY_BUDGET_SECONDS)` puts it in `config["configurable"]["deadline"]`. A non-primitive object there stays out of checkpoint metadata, but a float would not, so don't pass it as a number.
+  - `AgentNodes._allow(config, turn, step, timeout, keep=)` returns the seconds a call may take, keeping `LATENCY_SEND_RESERVE_SECONDS` plus `keep` free. It returns `None` when less than `LATENCY_MIN_CALL_SECONDS` would be left: the node then skips the call, uses its fallback and records the step in `turn["budget_skips"]`.
+  - Extraction and the knowledge search keep `LATENCY_REPLY_RESERVE_SECONDS`; the reply and the guard retry keep only the send reserve.
+  - `LLMProvider.extract/generate` take an optional `timeout` (capped at `LLM_TIMEOUT_SECONDS`). New fakes or providers must accept it.
+  - Calendar calls are never capped by the budget (a booking must not stop half-way). The hard cap is `AGENT_TIMEOUT_SECONDS` in the processor.
+  - Without a budget (`budget_seconds=None`, e.g. most tests), calls get their configured timeouts.
+- **Timings:** `agent/graph.py` `timed()` wraps every node and writes `turn["timings"][node]` in ms. Don't use `functools.wraps` there: LangGraph would read the inner signature and stop passing `config`. `persona_guard` sets `turn["reply_source"]` (llm / llm_retry / template).
+- **Runner:** `ainvoke(..., durability="exit")` saves the checkpoint once per turn.
+- **Processor:**
+  - `mark_read` runs as a task alongside the work; the first send waits at most `READ_RECEIPT_HEAD_START_SECONDS` for it.
+  - All bubbles are sent first, then logged in one session.
+  - `latency_ms` (first bubble only) is measured after Meta accepts the send. Replies over the budget log a warning.
+- **Calendar:** `CalendarEngine._busy` caches freeBusy per owner for `CALENDAR_BUSY_CACHE_SECONDS`, in process memory, with a 1-day margin on the window. `confirmed_slots` is always read live, and `book()` always re-checks live freeBusy.
+  - `Scheduler.prefetch()` (sync, must not raise) is called by `qualify` when exactly one field is missing. `CalendarScheduler` runs `warm()` as a background task. Every `Scheduler` implementation needs `prefetch`.
+- **Warm-up:** `services/warmup.py` runs one LLM call, knowledge search and calendar fetch at startup (`WARMUP_ON_STARTUP`).
+- **Evaluation (`evals/`):** `conversations.json` holds scripted cases (one phone per case, `requires: ["llm"]` for LLM-only phrasing). `harness.py` has `run_eval`, `check_turn`, `Report` and `DemoScheduler`, which `scripts/chat_cli.py` also uses.
+  - Universal checks: reply, language, persona, bubbles, grounded (every number in the text bubbles must come from the lead's messages or the turn's system prompt; the appendix is exempt) and latency (budget minus send reserve).
+  - `expect` keys: `state`, `parts`, `parts_any`, `not_parts`, `kb` (`"defer"` or a list of acceptable `doc_id`s), `language`.
+  - `tests/test_evals.py` runs every offline case with rules + templates and the real facts in in-memory Qdrant (FakeEmbedder, threshold 0.25). When you change agent behaviour, add or adjust a case.
+- **Open item before production:** run `scripts/eval_agent.py --kb --repeat 5` with the real Gemini key (it hasn't been run live yet). Then tune `LATENCY_REPLY_RESERVE_SECONDS` / `GEMINI_THINKING_LEVEL` from the node p95s and the template rate it reports.
 
 ### Contracts fixed by the spec (do not change)
 - `agent/state.py` `GCCRealEstateState`: keep exactly the spec's fields and enum values:
@@ -154,7 +178,7 @@ Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `
   - Every label includes the date ("Tomorrow, Tue 17 Nov at 8:00 AM AST"). Labels are rebuilt from the stored UTC ISO each time they're shown, so "Today"/"Tomorrow" always match the stored date.
 - **Persona:** the agent never reveals it is an AI or a bot, in English or Arabic, and a guard checks every reply for this. The rule is the config flag `PERSONA_CONCEAL_AI`: it defaults to true, as the spec requires; setting it to false lets the agent disclose honestly when asked. It speaks as a senior property consultant. Replies are short WhatsApp messages. Arabic replies use Khaleeji dialect.
 - **No hallucinated legal or tax figures:** fees, percentages and thresholds may only come from retrieved knowledge-base passages. If retrieval returns nothing above the score threshold, the agent defers to the consultant call.
-- **Response time:** under 3 s from webhook to send, in both languages (spec Definition of Done). `chat_logs.latency_ms` records it.
+- **Response time:** under 3 s from webhook to send, in both languages (spec Definition of Done). `chat_logs.latency_ms` records it. Enforced by the Phase 5 latency budget: when time runs short, the agent falls back to rules or templates rather than replying late.
 
 ### Config
 All settings live in `core/config.py` (pydantic-settings, loaded from `.env`; `.env.example` lists them). List-type values are JSON in the environment, e.g. `WORKING_DAYS=[0,1,2,3,4]` with Mon=0. Inside docker-compose, the `app` service overrides `DATABASE_URL`, `REDIS_URL` and `QDRANT_URL` with container hostnames.
