@@ -95,8 +95,10 @@ class Settings(BaseSettings):
     knowledge_dir: str = "knowledge_base/facts"
     rag_top_k: int = 3
     # Minimum cosine similarity for a passage to count as an answer; below it the agent defers to the call.
-    # Calibrate with `scripts/ingest_kb.py search "..." --all-scores` after changing the embedding model.
-    rag_score_threshold: float = 0.6
+    # 0.79 was calibrated on 2026-11-14 for gemini-embedding-2 at 768 dimensions (scripts/calibrate_kb.py):
+    # the highest-scoring question that must not be answered scored 0.777, and 36 of 38 answerable ones
+    # scored 0.80 or more (0.79 is the midpoint of that gap). Re-run the calibration whenever the embedding model, EMBEDDING_DIM or the facts change.
+    rag_score_threshold: float = 0.79
     rag_timeout_seconds: float = 2.5  # embed the question + search; on timeout the agent defers to the call
     rag_fact_max_age_days: int = 180  # ingest warns about facts not re-checked for this long
     # gemini-embedding-2 takes the task as a text prefix; set false for gemini-embedding-001 (uses task_type)

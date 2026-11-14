@@ -128,7 +128,12 @@ Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `
   - Guard: when there is knowledge or a DEFER, every number in the draft must appear in the system prompt (which holds the passages) or in the lead's message. `numbers_in` drops thousands separators. With no knowledge, any percentage is rejected.
 - **`scripts/ingest_kb.py`:** `validate` / `ingest [--listings f] [--recreate]` / `search "q" --country --lang --all-scores`.
 - **Tests:** `tests/test_knowledge_facts.py`, `tests/test_rag.py` and the knowledge tests in `tests/test_agent_graph.py`. They use in-memory Qdrant (`AsyncQdrantClient(location=":memory:")`) with `FakeEmbedder`.
-- **Open item before production:** run `scripts/ingest_kb.py ingest` against the real Qdrant with the Gemini key, then calibrate `RAG_SCORE_THRESHOLD` with `search --all-scores`. The default of 0.6 hasn't been tested with real embeddings.
+- **Threshold calibration:**
+  - `RAG_SCORE_THRESHOLD=0.79` was calibrated on 2026-11-14 (gemini-embedding-2, 768 dims) with `scripts/calibrate_kb.py` over `knowledge_base/calibration.json`.
+  - Result: 36 of 38 answerable questions answered, 0 of 17 that must not be answered. At the old 0.6, 14 of the 17 would have been answered.
+  - The highest-scoring question that must not be answered scored 0.777, and answerable ones cluster from 0.80, so the margin is thin. Never lower the threshold without re-running the calibration.
+  - `tests/test_calibration.py` requires every fact to have at least one question and every labelled id to exist, so add questions when you add facts.
+  - The script's `--scores` cache means only new or changed questions are embedded.
 
 ### Latency and evaluation (Phase 5)
 - **Budget:** `core/latency.py` `Deadline` starts at `IncomingMessage.received_at` (webhook receipt). `AgentService(budget_seconds=LATENCY_BUDGET_SECONDS)` puts it in `config["configurable"]["deadline"]`. A non-primitive object there stays out of checkpoint metadata, but a float would not, so don't pass it as a number.

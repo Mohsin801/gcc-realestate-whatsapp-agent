@@ -127,11 +127,27 @@ The agent answers legal and tax questions (transfer fees, RETT, foreign ownershi
 
 **Keeping facts current:** `validate` and `ingest` warn about any fact not re-checked within `RAG_FACT_MAX_AGE_DAYS` (180). Re-open its sources, update the text if the rule changed, and set a new `checked_on`.
 
-**Calibrating the threshold:** `RAG_SCORE_THRESHOLD` defaults to 0.6, which hasn't been tested with the real Gemini embeddings yet. After the first ingest, run `search --all-scores` with:
-- questions the knowledge base should answer;
-- questions it shouldn't, such as other markets' rules or off-topic questions.
+**Calibrating the threshold:** `RAG_SCORE_THRESHOLD` is **0.79**, calibrated on 2026-11-14 for `gemini-embedding-2` at 768 dimensions. `knowledge_base/calibration.json` holds 55 labelled questions in English and Arabic:
+- 38 the knowledge base should answer, each with the facts that answer it (every fact has at least one);
+- 17 it must not answer: off-topic questions, real-estate topics it doesn't cover (rental yields, mortgage rates, Kuwait transfer fees), and the facts left out on purpose. For a left-out fact, a related fact that makes a fair partial answer is marked `ok`.
 
-Set the threshold between the two groups' scores. Repeat this whenever the embedding model changes.
+`scripts/calibrate_kb.py` searches each question exactly like the agent, records every fact's score and tries thresholds from 0.30 to 0.90. Results:
+
+| Threshold | Answerable questions answered | Questions that must not be answered, answered anyway |
+|---|---|---|
+| 0.60 (old default) | 38 / 38 | **14 / 17**, e.g. "What's the weather in Dubai tomorrow?" got the freehold-ownership fact |
+| 0.79 (new) | 36 / 38 | 0 / 17 |
+
+The highest-scoring question that must not be answered scored 0.777 ("Can I get a Kuwait residency visa by buying property?"). 36 of the 38 answerable ones scored 0.80 or more, and 0.79 sits in the middle of that gap. The two misses get "I'll confirm on the call":
+- "What is RETT?" with no market known (0.705); with the LLM working, the question is restated with its country first;
+- the Arabic "can a foreigner buy in Doha?" (0.779).
+
+The two groups overlap between 0.70 and 0.78, so there's not much margin. Add real lead questions to the file as they come in.
+```
+.venv\Scripts\python scripts\calibrate_kb.py --scores kb_scores.json            # embeds only new/changed questions
+.venv\Scripts\python scripts\calibrate_kb.py --scores kb_scores.json --offline  # re-analyse without API calls
+```
+Re-run it whenever the embedding model, `EMBEDDING_DIM` or the facts change, and add questions for new facts (a test checks every fact is covered). The script prints the lowest safe threshold; pick a value with margin on both sides.
 
 **Owner listings (optional):** a JSON list of objects with `id`, `country` (DUBAI/SAUDI/QATAR/KUWAIT), `title`, `price` and `currency` (AED/SAR/QAR/KWD/USD). The optional fields are `location`, `property_type`, `bedrooms`, `description`, `title_ar`, `description_ar` and `url`. Listings go into the separate `properties` collection.
 
