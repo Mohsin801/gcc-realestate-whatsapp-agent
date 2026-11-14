@@ -39,7 +39,7 @@ build-backend = "setuptools.build_meta"
 py-modules = ["main"]
 
 [tool.setuptools.packages.find]
-include = ["api*", "agent*", "tools*", "services*", "db*", "core*"]
+include = ["api*", "agent*", "tools*", "services*", "db*", "core*", "evals*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

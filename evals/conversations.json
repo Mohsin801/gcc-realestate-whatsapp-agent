@@ -1,0 +1,168 @@
+[
+  {
+    "id": "en-dubai-investment-booking",
+    "description": "English lead, Dubai investment: qualify one question at a time, book a slot, give an email",
+    "phone": "971501110001",
+    "name": "Ahmed Al Mansoori",
+    "language": "en",
+    "turns": [
+      {"user": "Hi there", "expect": {"parts": ["GREETING", "ASK"], "state": {"booking_status": "NONE"}}},
+      {"user": "I'm looking to buy in Dubai, for investment",
+       "expect": {"state": {"target_country": "DUBAI", "intent": "INVESTMENT", "is_qualified": false},
+                  "parts": ["ASK"]}},
+      {"user": "My budget is around 2M AED", "expect": {"state": {"budget_usd": 544588.2}, "parts": ["ASK"]}},
+      {"user": "Ready now, as soon as possible",
+       "expect": {"state": {"timeline": "IMMEDIATE", "is_qualified": true, "booking_status": "SLOTS_OFFERED"},
+                  "parts": ["OFFER_SLOTS"]}},
+      {"user": "2", "expect": {"state": {"booking_status": "BOOKED"}, "parts": ["BOOKED"]}},
+      {"user": "ahmed.k@example.com", "expect": {"parts": ["EMAIL_SAVED"]}}
+    ]
+  },
+  {
+    "id": "ar-saudi-personal-booking",
+    "description": "Khaleeji Arabic lead, Riyadh home for the family, budget in Arabic-Indic digits, books a slot",
+    "phone": "966512220002",
+    "name": "فهد",
+    "language": "ar",
+    "turns": [
+      {"user": "السلام عليكم", "expect": {"parts": ["GREETING", "ASK"]}},
+      {"user": "ابي فيلا في الرياض اسكن فيها مع عيالي",
+       "expect": {"state": {"target_country": "SAUDI", "intent": "PERSONAL_USE"}, "parts": ["ASK"]}},
+      {"user": "ميزانيتي ٣ مليون ريال", "expect": {"state": {"budget_usd": 800000}, "parts": ["ASK"]}},
+      {"user": "خلال ثلاث شهور",
+       "expect": {"state": {"timeline": "3_MONTHS", "is_qualified": true, "booking_status": "SLOTS_OFFERED"},
+                  "parts": ["OFFER_SLOTS"]}},
+      {"user": "1", "expect": {"state": {"booking_status": "BOOKED"}, "parts": ["BOOKED"]}}
+    ]
+  },
+  {
+    "id": "en-qatar-residency-faq",
+    "description": "English lead, Doha for residency, asks the residency property threshold mid-qualification",
+    "phone": "97455330003",
+    "name": "Sara",
+    "language": "en",
+    "turns": [
+      {"user": "Hello, I want a property in Doha to get residency",
+       "expect": {"state": {"target_country": "QATAR", "intent": "GOLDEN_VISA"}, "parts": ["ASK"]}},
+      {"user": "What is the minimum property value for residency in Qatar?",
+       "expect": {"kb": ["qatar-residency-730k", "qatar-residency-3650k"], "state": {"target_country": "QATAR"}}},
+      {"user": "About 1 million riyals", "expect": {"state": {"budget_usd": 274725.3}, "parts": ["ASK"]}},
+      {"user": "Off-plan is fine for me",
+       "expect": {"state": {"timeline": "OFF_PLAN", "is_qualified": true}, "parts": ["OFFER_SLOTS"]}}
+    ]
+  },
+  {
+    "id": "ar-kuwait-ownership-faq",
+    "description": "Arabic question on foreign ownership in Kuwait as the first message",
+    "phone": "96555440004",
+    "name": "Mohammed",
+    "language": "ar",
+    "turns": [
+      {"user": "هل يحق للأجانب تملك عقار في الكويت؟",
+       "expect": {"kb": ["kuwait-ownership-restricted"], "state": {"target_country": "KUWAIT"}}}
+    ]
+  },
+  {
+    "id": "ar-dubai-dld-fee",
+    "description": "Arabic question on the Dubai Land Department registration fee",
+    "phone": "971502220005",
+    "name": "Khalid",
+    "language": "ar",
+    "turns": [
+      {"user": "كم رسوم تسجيل البيع في دائرة الأراضي والأملاك في دبي؟",
+       "expect": {"kb": ["dubai-dld-sale-registration-fee", "dubai-dld-sale-other-fees"]}}
+    ]
+  },
+  {
+    "id": "en-saudi-rett",
+    "description": "English question on the Saudi real estate transaction tax",
+    "phone": "966513330006",
+    "name": "John",
+    "language": "en",
+    "turns": [
+      {"user": "What is the real estate transaction tax (RETT) rate in Saudi Arabia?",
+       "expect": {"kb": ["saudi-rett-rate", "saudi-rett-vat", "saudi-rett-who-pays"]}}
+    ]
+  },
+  {
+    "id": "en-off-topic-defer",
+    "description": "A question the knowledge base cannot answer must be deferred, with no figures",
+    "phone": "971503330007",
+    "name": "Omar",
+    "language": "en",
+    "turns": [
+      {"user": "Which football team will win the league this season?", "expect": {"kb": "defer"}}
+    ]
+  },
+  {
+    "id": "en-are-you-a-bot",
+    "description": "Persona: asked directly whether it is a bot, the reply must not disclose it",
+    "phone": "971504440008",
+    "name": "Lina",
+    "language": "en",
+    "turns": [
+      {"user": "Hi, are you a bot or a real person?", "expect": {}},
+      {"user": "Be honest, is this ChatGPT?", "expect": {}}
+    ]
+  },
+  {
+    "id": "ar-are-you-a-bot",
+    "description": "Persona in Arabic: asked whether it is a robot",
+    "phone": "966514440009",
+    "name": "نورة",
+    "language": "ar",
+    "turns": [
+      {"user": "مرحبا، انت روبوت ولا انسان؟", "expect": {}}
+    ]
+  },
+  {
+    "id": "switch-en-to-ar",
+    "description": "The lead switches from English to Arabic; the reply follows",
+    "phone": "971505550010",
+    "name": "Ali",
+    "language": "en",
+    "turns": [
+      {"user": "Hi, I'm looking for an apartment in Dubai", "expect": {"state": {"target_country": "DUBAI"}}},
+      {"user": "ابيها للاستثمار",
+       "expect": {"language": "ar", "state": {"intent": "INVESTMENT", "language": "ar"}, "parts": ["ASK"]}}
+    ]
+  },
+  {
+    "id": "en-all-in-one-uk-number",
+    "description": "Everything in one message from a +44 number (owner timezone); slots offered straight away",
+    "phone": "447911660011",
+    "name": "James",
+    "language": "en",
+    "turns": [
+      {"user": "I want to invest in Dubai, budget 1.5 million dirhams, buying immediately",
+       "expect": {"state": {"target_country": "DUBAI", "intent": "INVESTMENT", "budget_usd": 408441.1,
+                            "timeline": "IMMEDIATE", "is_qualified": true, "booking_status": "SLOTS_OFFERED"},
+                  "parts": ["OFFER_SLOTS"]}}
+    ]
+  },
+  {
+    "id": "llm-lives-elsewhere-buys-dubai",
+    "description": "Where the lead lives is not where they buy (needs the LLM)",
+    "requires": ["llm"],
+    "phone": "966516660012",
+    "name": "Rania",
+    "language": "en",
+    "turns": [
+      {"user": "I live in Riyadh but I'm thinking of buying something in Dubai to rent out",
+       "expect": {"state": {"target_country": "DUBAI", "intent": "INVESTMENT"}, "parts": ["ASK"]}}
+    ]
+  },
+  {
+    "id": "llm-khaleeji-colloquial",
+    "description": "Colloquial Gulf Arabic phrasing the rules don't cover (needs the LLM)",
+    "requires": ["llm"],
+    "phone": "97455770013",
+    "name": "حمد",
+    "language": "ar",
+    "turns": [
+      {"user": "هلا والله، ودي اشتري بيت في الدوحه نستقر فيه انا والعيال",
+       "expect": {"state": {"target_country": "QATAR", "intent": "PERSONAL_USE"}, "parts": ["ASK"]}},
+      {"user": "تقريبا مليونين ونص ريال قطري", "expect": {"state": {"budget_usd": 686813.2}, "parts": ["ASK"]}}
+    ]
+  }
+]
