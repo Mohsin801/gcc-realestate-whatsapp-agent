@@ -59,7 +59,7 @@ The graph is built in `agent/graph.py`; the nodes live in `agent/nodes.py` (`Age
   A failing draft is regenerated once, then replaced by the template.
 - Calendar and RAG are reached only through the `Scheduler` / `Knowledge` protocols in `agent/services.py`.
   - `main.py` wires in `tools.calendar.CalendarScheduler`.
-  - `NullKnowledge` stays in use until Phase 4, so questions are deferred to the call.
+  - `main.py` wires in `tools.rag.KnowledgeBase` through `open_knowledge`. It falls back to `NullKnowledge`, which defers every question to the call, when no embedding model is configured. `NullKnowledge` is also the default whenever `build_graph` gets no knowledge.
   - `NullScheduler` is the default whenever `build_graph` gets no scheduler (tests, `chat_cli` without `--slots`). It gives qualified leads a "consultant will reach out" handoff.
 
 ### Calendar (Phase 3)
@@ -88,9 +88,45 @@ The graph is built in `agent/graph.py`; the nodes live in `agent/nodes.py` (`Age
   - `tzdata` is a dependency, because Windows has no system zoneinfo.
 - `agent/llm.py` `build_llm(settings)` returns a `LangChainLLM` with `extract` and `generate`. Every call is time-boxed (`LLM_TIMEOUT_SECONDS`), and `max_retries=0`.
 - Arabic synonym patterns must be written in `normalize_text()` form: ا for أ/إ/آ, ي for ى, ه for ة. A test enforces this.
-- Tests use `tests/agent_fakes.py` (`FakeLLM`, `FakeScheduler`, `FakeKnowledge`) together with `InMemorySaver`. `scripts/chat_cli.py` runs the agent in the terminal (`--no-llm`, `--slots`).
+- Tests use `tests/agent_fakes.py` (`FakeLLM`, `FakeScheduler`, `FakeKnowledge`, `FakeEmbedder`) together with `InMemorySaver`. `scripts/chat_cli.py` runs the agent in the terminal (`--no-llm`, `--slots`, `--kb`).
+- `tests/conftest.py` switches the working directory to `tests/` (so no `.env` is loaded). Build repo paths in tests from `Path(__file__)`, not from the working directory.
 
 Packages sit at the top level (`api/`, `agent/`, `tools/`, `services/`, `db/`, `core/`, plus `main.py`). They are not under `app/`, because the spec names `agent/state.py`, `tools/calendar.py` and `api/whatsapp.py`.
+
+### Knowledge base (Phase 4)
+- **Content: `knowledge_base/facts/{dubai,saudi,qatar,kuwait}.json`.**
+  - Each fact has `id`, `country`, `topic`, `title_en/ar`, `en/ar`, `sources[{name,url}]` and `checked_on`.
+  - Facts come **only from official government sources**. `tools/rag.py` `OFFICIAL_DOMAINS` is the allowlist; don't add a domain that isn't a government site.
+  - Never add a figure that you haven't seen on the official page. If the sources disagree or can't be read, leave the fact out; the agent then defers to the call.
+  - Kuwait facts come from the scanned Official Gazette (Kuwait Al-Youm No. 1726, Decree-Law 7/2025), via the KDIPA PDF.
+  - Left out on purpose (2026-11-14):
+    - the UAE Golden Visa duration (u.ae says 5 years, ICP says 10);
+    - Saudi Premium Residency (sapr.gov.sa was unreachable);
+    - the Qatar freehold/usufruct area counts (only in images on the MoJ page).
+- **Validation (`Fact` model):**
+  - the English and Arabic texts contain the same figures;
+  - the Arabic text really is Arabic;
+  - `checked_on` is not in the future;
+  - each text is at most 400 characters (one bubble, so it can be sent as-is).
+
+  `stale_facts` flags facts older than `RAG_FACT_MAX_AGE_DAYS` (180). `Listing` and `load_listings` load the owner's listings into the separate `properties` collection.
+- **`GeminiEmbedder`:**
+  - gemini-embedding-2 rejects `task_type`, so tasks go in as text prefixes (`GEMINI_EMBEDDING_TASK_PREFIXES`).
+  - It sends one request per text, because a list input returns a single aggregated vector.
+  - Vectors are L2-normalised.
+- **`KnowledgeBase` (implements `Knowledge`):**
+  - `search` filters by country, applies `RAG_SCORE_THRESHOLD`, dedupes by `doc_id` and returns the passage in the lead's language. The whole search is wrapped in `RAG_TIMEOUT_SECONDS`.
+  - `ingest` stores one point per language and deletes documents that are no longer in the files. A vector-dimension mismatch requires `--recreate`.
+  - `build_knowledge(settings)` raises `KnowledgeConfigError` when no embedding model is configured.
+- **Agent:**
+  - `normalize`: a question about another market doesn't overwrite `target_country`; it sets `turn["question_country"]`.
+  - `answer_question` searches with that country, then the extraction's, then one matched in the question text, then the lead's target market. It records `turn["sources"]` (source, score, doc_id, checked_on).
+    - With passages, it adds an ANSWER part whose template fallback is the top passage text.
+    - With none, or when the search fails or times out, it adds DEFER ("I'll confirm that for you on the call").
+  - Guard: when there is knowledge or a DEFER, every number in the draft must appear in the system prompt (which holds the passages) or in the lead's message. `_num` drops thousands separators. With no knowledge, any percentage is rejected.
+- **`scripts/ingest_kb.py`:** `validate` / `ingest [--listings f] [--recreate]` / `search "q" --country --lang --all-scores`.
+- **Tests:** `tests/test_knowledge_facts.py`, `tests/test_rag.py` and the knowledge tests in `tests/test_agent_graph.py`. They use in-memory Qdrant (`AsyncQdrantClient(location=":memory:")`) with `FakeEmbedder`.
+- **Open item before production:** run `scripts/ingest_kb.py ingest` against the real Qdrant with the Gemini key, then calibrate `RAG_SCORE_THRESHOLD` with `search --all-scores`. The default of 0.6 hasn't been tested with real embeddings.
 
 ### Contracts fixed by the spec (do not change)
 - `agent/state.py` `GCCRealEstateState`: keep exactly the spec's fields and enum values:

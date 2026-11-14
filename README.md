@@ -21,9 +21,10 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
 | `core/` | settings (`config.py`), JSON logging |
 | `api/` | `whatsapp.py` webhook (spec §5), `health.py`, `auth_google.py` (owner calendar connection) |
 | `agent/` | `state.py` (spec §3), LangGraph graph, nodes, prompts |
-| `tools/` | `calendar.py` (spec §4) + `scheduling.py` (slots, labels) + `calendar_providers/` (Google); RAG in Phase 4 |
+| `tools/` | `calendar.py` (spec §4) + `scheduling.py` (slots, labels) + `calendar_providers/` (Google); `rag.py` (Qdrant knowledge base) |
+| `knowledge_base/facts/` | verified GCC legal/tax facts, one JSON file per country, each with official sources and the date checked |
 | `services/` | Redis helpers, WhatsApp client, background message processor |
-| `scripts/` | `chat_cli.py`: chat with the agent in the terminal |
+| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base |
 | `db/`, `migrations/` | SQLAlchemy models + Alembic |
 
 ## Quick start
@@ -79,7 +80,66 @@ Try it locally without WhatsApp:
 .venv\Scripts\python scripts\chat_cli.py            # needs GEMINI_API_KEY + GEMINI_MODEL in .env
 .venv\Scripts\python scripts\chat_cli.py --no-llm --slots   # rules/templates + an empty demo calendar
 .venv\Scripts\python scripts\chat_cli.py --slots --phone 966512345678   # see times in Saudi time (AST)
+.venv\Scripts\python scripts\chat_cli.py --kb       # answer legal/tax questions from Qdrant (after an ingest)
 ```
+
+## Knowledge base (Phase 4)
+The agent answers legal and tax questions (transfer fees, RETT, foreign ownership, mortgage caps, residency through property) only from facts checked on **official government sources**. When the knowledge base has nothing relevant, it doesn't guess. It says it will confirm the details on the call.
+
+**What's in it:** 24 facts in `knowledge_base/facts/` (Dubai 6, Saudi 8, Qatar 5, Kuwait 5). Each fact is written in English and Arabic, lists its official source URLs, and records the date it was checked (`checked_on`). For example:
+```json
+{
+  "id": "dubai-dld-sale-registration-fee",
+  "country": "DUBAI",
+  "topic": "fees",
+  "title_en": "Dubai Land Department (DLD) property sale registration / transfer fee",
+  "title_ar": "رسوم تسجيل بيع العقار (رسوم النقل) لدى دائرة الأراضي والأملاك في دبي",
+  "en": "In Dubai, the Dubai Land Department (DLD) charges a sale registration fee of 4% of the sale value. ...",
+  "ar": "في دبي، تفرض دائرة الأراضي والأملاك رسوم تسجيل بيع بنسبة 4% من قيمة البيع. ...",
+  "sources": [{"name": "Dubai Land Department - Property Sale Registration service",
+               "url": "https://dubailand.gov.ae/en/eservices/property-sale-registration/"}],
+  "checked_on": "2026-11-14"
+}
+```
+
+**How a question is answered:**
+1. The question is embedded with Gemini and searched in Qdrant. The search is filtered to the market the question names. If it names none, it uses the lead's own target market. Asking about another market ("and in Saudi?") doesn't change the lead's target market.
+2. Passages scoring below `RAG_SCORE_THRESHOLD` are ignored. If none are left, or the search fails or takes longer than `RAG_TIMEOUT_SECONDS`, the agent defers to the call.
+3. The passage is sent in the lead's language, and the LLM answers using only those passages.
+4. The persona guard rejects any reply that contains a number not found in the passages or in the lead's own message. If the LLM is down, the best passage itself is sent as the answer.
+5. The sources, scores and `checked_on` dates used for each answer are kept in the turn state (`turn["sources"]`).
+
+**Commands** (`ingest` and `search` need `GEMINI_API_KEY`, `GEMINI_EMBEDDING_MODEL` and a running Qdrant):
+```
+.venv\Scripts\python scripts\ingest_kb.py validate                  # check the fact files (offline)
+.venv\Scripts\python scripts\ingest_kb.py ingest                    # embed + upsert the facts
+.venv\Scripts\python scripts\ingest_kb.py ingest --listings my_listings.json   # also load the owner's listings
+.venv\Scripts\python scripts\ingest_kb.py ingest --recreate         # after changing the embedding model or EMBEDDING_DIM
+.venv\Scripts\python scripts\ingest_kb.py search "DLD fees?" --country DUBAI --lang en --all-scores
+```
+`ingest` can be re-run safely: a fact removed from the files is also removed from Qdrant.
+
+**Adding or changing a fact:**
+1. Find the rule on an official government page. Only the domains in `tools/rag.py` `OFFICIAL_DOMAINS` are accepted (DLD, Dubai government, u.ae, ICP, ZATCA, REGA, SPA, my.gov.sa, Ministry of Housing, Qatar MoJ / Aqarat / Hukoomi / Sharek, KDIPA, Kuwait MoJ / e.gov.kw). Add a domain only if it is a government site.
+2. Write the fact in both languages, at most 400 characters each, and make sure the English and Arabic contain **the same numbers**. Set `checked_on` to the day you checked the source.
+3. Run `ingest_kb.py validate` and the tests, then `ingest`.
+
+**Keeping facts current:** `validate` and `ingest` warn about any fact not re-checked within `RAG_FACT_MAX_AGE_DAYS` (180). Re-open its sources, update the text if the rule changed, and set a new `checked_on`.
+
+**Calibrating the threshold:** `RAG_SCORE_THRESHOLD` defaults to 0.6, which hasn't been tested with the real Gemini embeddings yet. After the first ingest, run `search --all-scores` with:
+- questions the knowledge base should answer;
+- questions it shouldn't, such as other markets' rules or off-topic questions.
+
+Set the threshold between the two groups' scores. Repeat this whenever the embedding model changes.
+
+**Owner listings (optional):** a JSON list of objects with `id`, `country` (DUBAI/SAUDI/QATAR/KUWAIT), `title`, `price` and `currency` (AED/SAR/QAR/KWD/USD). The optional fields are `location`, `property_type`, `bedrooms`, `description`, `title_ar`, `description_ar` and `url`. Listings go into the separate `properties` collection.
+
+**Left out on purpose**, because the official sources were unclear or unreachable on 2026-11-14 (the agent defers these to the call):
+- How long the UAE Golden Visa lasts: u.ae says 5 years, the ICP page says 10.
+- Saudi Premium Residency: sapr.gov.sa could not be reached.
+- How many freehold and usufruct areas Qatar has: the Ministry of Justice page shows them only as images.
+
+Without an embedding model configured, the app starts with the knowledge base switched off, and every legal or tax question is deferred to the call.
 
 ### Running tests
 ```
@@ -92,7 +152,8 @@ or inside Docker: `docker compose run --rm app pytest`
 ## Credentials you need
 | What | Where |
 |---|---|
-| Gemini API key | https://aistudio.google.com/apikey |
+| Gemini API key | https://aistudio.google.com/apikey (also used for the knowledge-base embeddings) |
+| Qdrant | runs in docker-compose; for Qdrant Cloud set `QDRANT_URL` and `QDRANT_API_KEY` |
 | WhatsApp token, phone number ID, app secret | Meta developer app → WhatsApp → API Setup; app secret under App settings → Basic |
 | Webhook verify token | Any random string; enter the same value in Meta's webhook config |
 | Google OAuth client | Google Cloud Console → enable Calendar API → Credentials → OAuth client (Web). Redirect URI: `<PUBLIC_BASE_URL>/auth/google/callback` |
