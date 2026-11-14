@@ -45,6 +45,11 @@ class Scheduler(Protocol):
         """Attach the lead's email to their booking so the calendar invite is sent."""
         ...
 
+    def prefetch(self) -> None:
+        """Start loading calendar availability in the background (the lead is about to be offered slots).
+        Must return immediately and never raise."""
+        ...
+
 
 class Knowledge(Protocol):
     async def search(self, query: str, country: str | None, language: str) -> list[Passage]:
@@ -64,6 +69,9 @@ class NullScheduler:
 
     async def add_email(self, phone: str, email: str) -> bool:
         return False
+
+    def prefetch(self) -> None:
+        return None
 
 
 class NullKnowledge:

@@ -13,7 +13,13 @@ created. Any failure releases the reservation.
 ``CalendarScheduler`` adapts the engine to the agent's ``Scheduler`` protocol: it remembers the offered
 slots per lead in Redis (as UTC ISO strings) and renders labels in the lead's timezone, chosen from
 the phone country code (+971/+966/+974/+965) with the owner's timezone as fallback.
+
+Latency: freeBusy answers are cached per owner for ``CALENDAR_BUSY_CACHE_SECONDS`` and fetched ahead
+(``CalendarScheduler.prefetch``) when a lead is one answer away from being offered slots. Bookings made since
+the fetch still count, because ``bookings`` is always read live, and ``book()`` always re-checks live freeBusy
+before it creates the event. The cache lives in the process (one per worker).
 """
+import asyncio
 import logging
 import uuid
 from collections.abc import Callable
@@ -62,6 +68,14 @@ class OwnerConfig:
 
 
 @dataclass(frozen=True)
+class _BusyWindow:
+    fetched_at: datetime
+    start: datetime
+    end: datetime
+    busy: list[tuple[datetime, datetime]]
+
+
+@dataclass(frozen=True)
 class BookingOutcome:
     ok: bool
     taken: bool = False
@@ -91,6 +105,7 @@ class CalendarEngine:
         self.cipher = cipher
         self._provider_factory = provider_factory
         self._clock = clock
+        self._busy_cache: dict[str, _BusyWindow] = {}
 
     def now(self) -> datetime:
         return self._clock()
@@ -141,12 +156,33 @@ class CalendarEngine:
         candidates = self._candidates(owner, self.now())
         if not candidates:
             return []
-        busy = await provider.free_busy(candidates[0], candidates[-1] + self.duration)
+        busy = await self._busy(owner.id, provider, candidates[0], candidates[-1] + self.duration)
         async with self.sessionmaker() as session:
             taken = await repository.confirmed_slots(session, owner.id, to_iso(candidates[0]))
         s = self.settings
         return pick_slots(candidates, busy, taken, duration=self.duration, count=s.slot_count,
                           per_day=s.slots_per_day, owner_tz=owner.hours.timezone)
+
+    async def _busy(self, owner_id: str, provider: CalendarProvider, start: datetime,
+                    end: datetime) -> list[tuple[datetime, datetime]]:
+        """freeBusy for [start, end], from the cache when a recent fetch covers the window."""
+        ttl = timedelta(seconds=self.settings.calendar_busy_cache_seconds)
+        now = self.now()
+        hit = self._busy_cache.get(owner_id)
+        if ttl and hit and now - hit.fetched_at < ttl and hit.start <= start and end <= hit.end:
+            return hit.busy
+        fetch_end = end + timedelta(days=1)  # margin: the search window slides forward while cached
+        busy = await provider.free_busy(start, fetch_end)
+        if ttl:
+            self._busy_cache[owner_id] = _BusyWindow(now, start, fetch_end, busy)
+        return busy
+
+    def forget_busy(self, owner_id: str | None = None) -> None:
+        """Drop cached freeBusy (all owners when ``owner_id`` is None)."""
+        if owner_id is None:
+            self._busy_cache.clear()
+        else:
+            self._busy_cache.pop(owner_id, None)
 
     async def book(self, lead_phone: str, lead_name: str | None, slot_iso: str,
                    owner_id: str | None = None) -> BookingOutcome:
@@ -290,6 +326,24 @@ class CalendarScheduler:
         self.engine = engine
         self.redis = redis
         self.owner_id = owner_id
+        self._tasks: set[asyncio.Task] = set()
+
+    def prefetch(self) -> None:
+        """Fill the freeBusy cache in the background so the coming slot offer doesn't wait on Google."""
+        task = asyncio.create_task(self.warm())
+        self._tasks.add(task)  # keep a reference until it finishes
+        task.add_done_callback(self._tasks.discard)
+
+    async def warm(self) -> bool:
+        """Fetch open slots once (fills the cache and the OAuth token). Never raises."""
+        try:
+            await self.engine.find_open_slots(self.owner_id)
+            return True
+        except CalendarNotConnected as exc:
+            log.info("calendar prefetch skipped: %s", exc)
+        except Exception:  # noqa: BLE001 - an optimisation; the real offer reports errors
+            log.info("calendar prefetch failed", exc_info=True)
+        return False
 
     async def _lead_tz(self, phone: str) -> str:
         owner = await self.engine.owner_config(self.owner_id)

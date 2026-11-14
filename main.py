@@ -1,4 +1,5 @@
 """FastAPI entrypoint for the GCC Real Estate WhatsApp agent."""
+import asyncio
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 
@@ -17,6 +18,7 @@ from core.logging import setup_logging
 from db.session import dispose_engine, get_sessionmaker, init_engine
 from services.redis import create_redis
 from services.runtime import Runtime, set_runtime
+from services.warmup import warm_up
 from services.whatsapp_client import WhatsAppClient
 from tools import calendar
 from tools.calendar import CalendarEngine, CalendarScheduler
@@ -93,15 +95,23 @@ async def lifespan(app: FastAPI):
         if qdrant is not None:
             stack.push_async_callback(qdrant.close)
         checkpointer = await open_checkpointer(stack, settings)
+        llm = open_llm(settings)
+        scheduler = CalendarScheduler(calendar_engine, app.state.redis)
         graph = build_graph(
-            llm=open_llm(settings), settings=settings, checkpointer=checkpointer,
-            scheduler=CalendarScheduler(calendar_engine, app.state.redis), knowledge=knowledge,
+            llm=llm, settings=settings, checkpointer=checkpointer, scheduler=scheduler, knowledge=knowledge,
         )
-        agent = AgentService(graph, get_sessionmaker())
-        set_runtime(Runtime(sender=wa_client, sessionmaker=get_sessionmaker(), run_agent=agent))
+        agent = AgentService(graph, get_sessionmaker(), budget_seconds=settings.latency_budget_seconds)
+        set_runtime(Runtime(
+            sender=wa_client, sessionmaker=get_sessionmaker(), run_agent=agent,
+            agent_timeout_seconds=settings.agent_timeout_seconds,
+            latency_budget_seconds=settings.latency_budget_seconds,
+        ))
+        warmup = asyncio.create_task(warm_up(llm, knowledge, scheduler)) if settings.warmup_on_startup else None
         try:
             yield
         finally:
+            if warmup is not None and not warmup.done():
+                warmup.cancel()
             set_runtime(None)
             calendar.configure(None)
             await wa_client.aclose()
@@ -110,7 +120,7 @@ async def lifespan(app: FastAPI):
             await dispose_engine()
 
 
-app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.5.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(whatsapp.router)
 app.include_router(auth_google.router)

@@ -24,28 +24,46 @@ def _last_human(messages) -> str:
 
 class FakeLLM:
     """``extract_map``: exact lead text -> Extraction (missing keys raise, i.e. 'LLM failed').
-    ``replies``: queue of reply drafts; when empty, replies in the prompt's language."""
+    ``replies``: queue of reply drafts; when empty, replies in the prompt's language.
+    ``extract_delay`` / ``generate_delay``: simulated call time in seconds; like the real provider, a call
+    slower than its ``timeout`` raises ``TimeoutError`` once the timeout has passed."""
 
     def __init__(self, extract_map: dict[str, Extraction] | None = None, replies: list[str] | None = None,
                  fail_extract: bool = False, fail_generate: bool = False,
-                 reply_fn: Callable[[str], str] | None = None):
+                 reply_fn: Callable[[str], str] | None = None,
+                 extract_delay: float = 0.0, generate_delay: float = 0.0):
         self.extract_map = extract_map or {}
         self.replies = list(replies or [])
         self.fail_extract = fail_extract
         self.fail_generate = fail_generate
         self.reply_fn = reply_fn
+        self.extract_delay = extract_delay
+        self.generate_delay = generate_delay
         self.extract_calls: list[str] = []
         self.generate_systems: list[str] = []
+        self.timeouts: list[tuple[str, float | None]] = []  # (call, timeout it was given)
 
-    async def extract(self, system, messages, schema):
+    @staticmethod
+    async def _take(delay: float, timeout: float | None) -> None:
+        if timeout is not None and delay > timeout:
+            await asyncio.sleep(timeout)
+            raise TimeoutError("fake LLM: call timed out")
+        if delay:
+            await asyncio.sleep(delay)
+
+    async def extract(self, system, messages, schema, timeout=None):
         text = _last_human(messages)
         self.extract_calls.append(text)
+        self.timeouts.append(("extract", timeout))
+        await self._take(self.extract_delay, timeout)
         if self.fail_extract or text not in self.extract_map:
             raise RuntimeError("fake LLM: extraction unavailable")
         return self.extract_map[text]
 
-    async def generate(self, system, messages):
+    async def generate(self, system, messages, timeout=None):
         self.generate_systems.append(system)
+        self.timeouts.append(("generate", timeout))
+        await self._take(self.generate_delay, timeout)
         if self.fail_generate:
             raise RuntimeError("fake LLM: generation unavailable")
         if self.replies:
@@ -66,6 +84,10 @@ class FakeScheduler:
         self.taken = taken
         self.fail_book = fail_book
         self.offer_calls = 0
+        self.prefetches = 0
+
+    def prefetch(self):
+        self.prefetches += 1
 
     async def offer_slots(self, phone, country, language):
         self.offer_calls += 1

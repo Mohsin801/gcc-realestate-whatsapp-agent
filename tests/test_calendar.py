@@ -273,3 +273,79 @@ async def test_agent_books_through_calendar_engine(scheduler, provider, sessionm
     async with sessionmaker() as s:
         lead = await s.scalar(select(Lead).where(Lead.phone == KSA))
     assert lead.booking_status == "BOOKED"
+
+
+# --- freeBusy cache and prefetch (Phase 5 latency) ----------------------------------------------------
+class CountingProvider(FakeProvider):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.busy_calls = 0
+
+    async def free_busy(self, start, end):
+        self.busy_calls += 1
+        return await super().free_busy(start, end)
+
+
+@pytest.fixture
+def counting(sessionmaker, owner, clock):
+    provider = CountingProvider()
+    engine = CalendarEngine(Settings(_env_file=None, calendar_busy_cache_seconds=120), sessionmaker,
+                            provider_factory=lambda o: provider, clock=clock)
+    return engine, provider
+
+
+async def test_free_busy_is_cached_briefly(counting, clock):
+    engine, provider = counting
+    first = await engine.find_open_slots()
+    assert await engine.find_open_slots() == first
+    assert provider.busy_calls == 1
+    clock.now = NOW + timedelta(seconds=121)  # cache expired
+    await engine.find_open_slots()
+    assert provider.busy_calls == 2
+    engine.forget_busy()
+    await engine.find_open_slots()
+    assert provider.busy_calls == 3
+
+
+async def test_cached_offer_still_excludes_new_bookings_and_booking_rechecks_live(counting):
+    engine, provider = counting
+    first = [to_iso(s) for s in await engine.find_open_slots()]
+    assert (await engine.book(KSA, "Sara", first[0])).ok  # re-checks freeBusy live, not from the cache
+    assert provider.busy_calls == 2
+    again = [to_iso(s) for s in await engine.find_open_slots()]  # cache hit, but bookings are read live
+    assert provider.busy_calls == 2
+    assert first[0] not in again and len(again) == 3
+
+
+async def test_busy_cache_can_be_turned_off(sessionmaker, owner, clock):
+    provider = CountingProvider()
+    engine = CalendarEngine(Settings(_env_file=None, calendar_busy_cache_seconds=0), sessionmaker,
+                            provider_factory=lambda o: provider, clock=clock)
+    await engine.find_open_slots()
+    await engine.find_open_slots()
+    assert provider.busy_calls == 2
+
+
+async def test_scheduler_prefetch_fills_the_cache_in_the_background(counting, fake_redis):
+    import asyncio
+
+    engine, provider = counting
+    sched = CalendarScheduler(engine, fake_redis)
+    sched.prefetch()  # returns immediately
+    await asyncio.gather(*sched._tasks)
+    assert provider.busy_calls == 1
+    labels = await sched.offer_slots(UAE, "DUBAI", "en")
+    assert len(labels) == 3 and provider.busy_calls == 1  # the offer was served from the prefetch
+
+
+async def test_prefetch_and_warm_never_raise(sessionmaker, owner, fake_redis, clock):
+    import asyncio
+
+    def broken(_):
+        raise CalendarError("down")
+
+    engine = CalendarEngine(Settings(_env_file=None), sessionmaker, provider_factory=broken, clock=clock)
+    sched = CalendarScheduler(engine, fake_redis)
+    assert await sched.warm() is False
+    sched.prefetch()
+    await asyncio.gather(*sched._tasks)

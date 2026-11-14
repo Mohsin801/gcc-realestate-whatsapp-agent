@@ -27,7 +27,8 @@ class Runtime:
     sender: MessageSender
     sessionmaker: async_sessionmaker[AsyncSession]
     run_agent: AgentRunner
-    agent_timeout_seconds: float = 20.0
+    agent_timeout_seconds: float = 20.0  # hard cap on one agent turn (AGENT_TIMEOUT_SECONDS)
+    latency_budget_seconds: float = 3.0  # replies slower than this are logged as warnings (LATENCY_BUDGET_SECONDS)
 
 
 _runtime: Runtime | None = None

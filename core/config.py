@@ -99,6 +99,24 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = 30.0  # HTTP timeout of the embedding client (searches are capped above)
     qdrant_timeout_seconds: float = 5.0
 
+    # --- Latency (spec DoD: reply in < 3 s, from webhook receipt to the first reply sent) ---
+    latency_budget_seconds: float = 3.0
+    # Kept free for sending the reply through the Meta Graph API after the agent is done.
+    latency_send_reserve_seconds: float = 0.5
+    # Kept free for writing the reply while extraction / knowledge search run; if they eat into it they are cut
+    # short and rules / a deferral take over.
+    latency_reply_reserve_seconds: float = 1.0
+    # An LLM call or knowledge search is skipped (fallback used) when less time than this is left.
+    latency_min_call_seconds: float = 0.4
+    # Hard cap on one agent turn, including calendar writes the budget never cuts short; past it the lead gets a
+    # "one moment" template.
+    agent_timeout_seconds: float = 20.0
+    # Google freeBusy answers are reused for this long, and fetched ahead when the lead is one answer away from
+    # being qualified, so offering slots doesn't wait on Google. Booking always re-checks live freeBusy.
+    calendar_busy_cache_seconds: int = 120
+    # One tiny LLM call (and knowledge search) at startup, so the first lead doesn't pay connection setup.
+    warmup_on_startup: bool = True
+
     # --- Session ---
     session_ttl_minutes: int = 60 * 24 * 30  # LangGraph checkpoint TTL (30 days)
     offered_slots_ttl_seconds: int = 60 * 60 * 48

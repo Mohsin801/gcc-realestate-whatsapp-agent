@@ -1,9 +1,10 @@
 """LLM provider abstraction. Gemini by default; Claude or OpenAI can be selected with LLM_PROVIDER.
 
 The agent only needs two operations, so a provider is anything with:
-  * ``extract(system, messages, schema)`` -> an instance of the Pydantic ``schema`` (structured output)
-  * ``generate(system, messages)`` -> plain reply text
-Each call has its own timeout; callers treat any exception as "LLM unavailable" and fall back to
+  * ``extract(system, messages, schema, timeout=None)`` -> an instance of the Pydantic ``schema`` (structured output)
+  * ``generate(system, messages, timeout=None)`` -> plain reply text
+Each call has its own timeout (``LLM_TIMEOUT_SECONDS``, or a shorter ``timeout`` when the turn's latency budget
+is running out); callers treat any exception as "LLM unavailable" and fall back to
 rules/templates, so the lead is always answered.
 """
 import asyncio
@@ -20,8 +21,9 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMProvider(Protocol):
-    async def extract(self, system: str, messages: Sequence[BaseMessage], schema: type[T]) -> T: ...
-    async def generate(self, system: str, messages: Sequence[BaseMessage]) -> str: ...
+    async def extract(self, system: str, messages: Sequence[BaseMessage], schema: type[T],
+                      timeout: float | None = None) -> T: ...
+    async def generate(self, system: str, messages: Sequence[BaseMessage], timeout: float | None = None) -> str: ...
 
 
 class LLMConfigError(RuntimeError):
@@ -36,12 +38,16 @@ class LangChainLLM:
         self._timeout = timeout_seconds
         self._structured: dict[type, object] = {}
 
-    async def extract(self, system: str, messages: Sequence[BaseMessage], schema: type[T]) -> T:
+    def _limit(self, timeout: float | None) -> float:
+        return self._timeout if timeout is None else min(timeout, self._timeout)
+
+    async def extract(self, system: str, messages: Sequence[BaseMessage], schema: type[T],
+                      timeout: float | None = None) -> T:
         runnable = self._structured.get(schema)
         if runnable is None:
             runnable = self._structured[schema] = self._model.with_structured_output(schema)
         result = await asyncio.wait_for(
-            runnable.ainvoke([SystemMessage(system), *messages]), timeout=self._timeout  # type: ignore[attr-defined]
+            runnable.ainvoke([SystemMessage(system), *messages]), timeout=self._limit(timeout)  # type: ignore[attr-defined]
         )
         if isinstance(result, dict):
             result = schema.model_validate(result)
@@ -49,8 +55,10 @@ class LangChainLLM:
             raise ValueError(f"structured output did not match {schema.__name__}")
         return result
 
-    async def generate(self, system: str, messages: Sequence[BaseMessage]) -> str:
-        msg = await asyncio.wait_for(self._model.ainvoke([SystemMessage(system), *messages]), timeout=self._timeout)
+    async def generate(self, system: str, messages: Sequence[BaseMessage], timeout: float | None = None) -> str:
+        msg = await asyncio.wait_for(
+            self._model.ainvoke([SystemMessage(system), *messages]), timeout=self._limit(timeout)
+        )
         return _text_of(msg.content)
 
 

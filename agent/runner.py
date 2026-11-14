@@ -4,6 +4,9 @@
 * If there is no checkpoint (new lead, or the session expired), the qualification fields are seeded
   from the Postgres ``leads`` row, so a returning lead is never asked the same questions twice.
 * After each turn the qualification fields are written back to ``leads`` (the durable record).
+* Latency: with ``budget_seconds`` set, a ``Deadline`` that started at webhook receipt (``msg.received_at``)
+  goes into the graph config, so nodes cut slow LLM/search calls short and fall back in time. The checkpoint
+  is written once, when the turn ends (``durability="exit"``), not after every node.
 """
 import logging
 from typing import Any
@@ -11,6 +14,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from core.latency import Deadline
 from db import repository
 from services.inbound import IncomingMessage
 
@@ -18,12 +22,16 @@ log = logging.getLogger(__name__)
 
 
 class AgentService:
-    def __init__(self, graph, sessionmaker: async_sessionmaker[AsyncSession] | None = None):
+    def __init__(self, graph, sessionmaker: async_sessionmaker[AsyncSession] | None = None,
+                 budget_seconds: float | None = None):
         self.graph = graph
         self.sessionmaker = sessionmaker
+        self.budget_seconds = budget_seconds
 
     async def __call__(self, msg: IncomingMessage, language: str) -> list[str]:
-        config = {"configurable": {"thread_id": msg.phone, "lead_name": msg.profile_name}}
+        deadline = Deadline(self.budget_seconds, start=msg.received_at) if self.budget_seconds else None
+        # The Deadline object is not a str/int/float, so LangGraph keeps it out of checkpoint metadata.
+        config = {"configurable": {"thread_id": msg.phone, "lead_name": msg.profile_name, "deadline": deadline}}
         turn_input: dict[str, Any] = {
             "messages": [HumanMessage(msg.text or "")],
             "phone_number": msg.phone,
@@ -33,7 +41,8 @@ class AgentService:
         snapshot = await self.graph.aget_state(config)
         if not snapshot.values:
             turn_input |= await self._seed(msg.phone)
-        result = await self.graph.ainvoke(turn_input, config)
+        durability = {"durability": "exit"} if self.graph.checkpointer is not None else {}
+        result = await self.graph.ainvoke(turn_input, config, **durability)
         await self._persist(msg.phone, result)
         turn = result.get("turn") or {}
         log.info(
@@ -45,6 +54,10 @@ class AgentService:
                 "message_intent": (turn.get("extraction") or {}).get("message_intent"),
                 "parts": [p["kind"] for p in turn.get("parts") or []],
                 "draft_source": turn.get("draft_source"),
+                "reply_source": turn.get("reply_source"),
+                "timings_ms": turn.get("timings"),
+                "budget_skips": turn.get("budget_skips"),
+                "agent_done_ms": deadline.elapsed_ms() if deadline else None,
                 "booking_status": result.get("booking_status"),
                 "is_qualified": result.get("is_qualified"),
             },

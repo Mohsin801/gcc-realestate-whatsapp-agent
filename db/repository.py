@@ -1,4 +1,6 @@
 """Data access for leads and chat logs."""
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,3 +138,13 @@ async def log_message(
         await session.rollback()
         return None
     return row
+
+
+async def reply_latencies(session: AsyncSession, since: datetime) -> list[tuple[str | None, int]]:
+    """(language, latency_ms) of every reply since ``since``: webhook receipt -> first bubble accepted by Meta."""
+    rows = await session.execute(
+        select(ChatLog.language, ChatLog.latency_ms).where(
+            ChatLog.direction == "out", ChatLog.latency_ms.is_not(None), ChatLog.created_at >= since
+        )
+    )
+    return [(lang, ms) for lang, ms in rows.all()]

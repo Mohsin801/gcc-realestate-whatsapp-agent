@@ -117,3 +117,88 @@ async def test_same_phone_messages_are_serialised(fake_redis, sender, sessionmak
     )
     assert max_active == 1
     assert sorted(t for _, t in sender.sent) == ["a", "b"]
+
+
+# --- Phase 5: latency on the critical path ------------------------------------------------------------
+class SlowSender(RecordingSender):
+    def __init__(self, read_delay=0.0, send_delay=0.0, fail_read=False):
+        super().__init__()
+        self.read_delay, self.send_delay, self.fail_read = read_delay, send_delay, fail_read
+        self.events: list[str] = []
+
+    async def mark_read(self, wamid, typing=True):
+        self.events.append("read-start")
+        await asyncio.sleep(self.read_delay)
+        if self.fail_read:
+            raise RuntimeError("graph api down")
+        self.events.append("read-done")
+        await super().mark_read(wamid, typing)
+
+    async def send_text(self, to, body):
+        await asyncio.sleep(self.send_delay)
+        self.events.append("send")
+        return await super().send_text(to, body)
+
+
+async def _out_logs(sessionmaker):
+    async with sessionmaker() as s:
+        return (await s.scalars(select(ChatLog).where(ChatLog.direction == "out").order_by(ChatLog.id))).all()
+
+
+async def test_read_receipt_runs_alongside_the_agent(fake_redis, sessionmaker):
+    sender = SlowSender(read_delay=0.2)
+
+    async def agent(msg, language):
+        await asyncio.sleep(0.2)
+        return ["hi"]
+
+    rt = Runtime(sender=sender, sessionmaker=sessionmaker, run_agent=agent)
+    start = time.monotonic()
+    await process_message(_msg(), redis=fake_redis, runtime=rt)
+    assert time.monotonic() - start < 0.35  # 0.2 + 0.2 if they ran one after the other
+    assert sender.events == ["read-start", "read-done", "send"]
+
+
+async def test_hung_read_receipt_delays_the_reply_by_at_most_the_head_start(fake_redis, sessionmaker, monkeypatch):
+    import services.processor as processor
+
+    monkeypatch.setattr(processor, "READ_RECEIPT_GRACE_SECONDS", 0.05)
+    sender = SlowSender(read_delay=10)
+    rt = Runtime(sender=sender, sessionmaker=sessionmaker, run_agent=_agent)
+    await process_message(_msg(), redis=fake_redis, runtime=rt)
+    [log] = await _out_logs(sessionmaker)
+    assert log.latency_ms < processor.READ_RECEIPT_HEAD_START_SECONDS * 1000 + 150
+    assert sender.sent == [("971501234567", "reply-en")]
+
+
+async def test_failed_read_receipt_does_not_stop_the_reply(fake_redis, sessionmaker):
+    sender = SlowSender(fail_read=True)
+    await process_message(_msg(), redis=fake_redis,
+                          runtime=Runtime(sender=sender, sessionmaker=sessionmaker, run_agent=_agent))
+    assert sender.sent == [("971501234567", "reply-en")]
+
+
+async def test_latency_is_measured_when_meta_accepts_the_reply(fake_redis, sessionmaker):
+    sender = SlowSender(send_delay=0.15)
+
+    async def two_bubbles(msg, language):
+        return ["first", "second"]
+
+    await process_message(_msg(), redis=fake_redis,
+                          runtime=Runtime(sender=sender, sessionmaker=sessionmaker, run_agent=two_bubbles))
+    first, second = await _out_logs(sessionmaker)
+    assert first.text == "first" and first.latency_ms >= 150
+    assert second.text == "second" and second.latency_ms is None  # the DoD figure is the first bubble
+
+
+async def test_reply_over_budget_is_logged_as_warning(fake_redis, sessionmaker, caplog):
+    async def slow(msg, language):
+        await asyncio.sleep(0.1)
+        return ["late"]
+
+    rt = Runtime(sender=RecordingSender(), sessionmaker=sessionmaker, run_agent=slow, latency_budget_seconds=0.05)
+    with caplog.at_level("INFO", logger="services.processor"):
+        await process_message(_msg(), redis=fake_redis, runtime=rt)
+    [rec] = [r for r in caplog.records if r.getMessage().startswith("reply sent")]
+    assert rec.levelname == "WARNING" and rec.getMessage() == "reply sent over the latency budget"
+    assert rec.latency_ms >= 100 and rec.budget_ms == 50

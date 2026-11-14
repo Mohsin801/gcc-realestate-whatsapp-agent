@@ -7,9 +7,16 @@
                                   qualify | offer_slots | book_slot | capture_email | follow_up
                                                                  v
                                                      respond -> persona_guard -> END
+
+Every node is wrapped by ``timed`` so ``turn["timings"]`` holds each node's duration in ms (logged per turn,
+used by the evaluation report to find slow stages).
 """
+import inspect
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -28,6 +35,22 @@ class AgentGraphState(GCCRealEstateState, total=False):
     turn: dict[str, Any]
 
 
+def timed(name: str, fn: Callable[..., Awaitable[dict]]) -> Callable[[dict, RunnableConfig], Awaitable[dict]]:
+    """Wrap a node so its wall time is added to ``turn["timings"][name]`` (ms)."""
+    takes_config = len(inspect.signature(fn).parameters) > 1
+
+    async def node(state: dict, config: RunnableConfig) -> dict:
+        start = time.perf_counter()
+        update = await (fn(state, config) if takes_config else fn(state))
+        turn = dict(update.get("turn") or state.get("turn") or {})
+        turn["timings"] = {**(turn.get("timings") or {}), name: round((time.perf_counter() - start) * 1000, 1)}
+        return {**update, "turn": turn}
+
+    # no functools.wraps: LangGraph reads the signature to decide whether to pass ``config``
+    node.__name__ = node.__qualname__ = name
+    return node
+
+
 def build_graph(
     *,
     llm: LLMProvider | None,
@@ -40,14 +63,9 @@ def build_graph(
         llm=llm, settings=settings, scheduler=scheduler or NullScheduler(), knowledge=knowledge or NullKnowledge()
     )
     g = StateGraph(AgentGraphState)
-    g.add_node("detect_language", nodes.detect_language)
-    g.add_node("extract", nodes.extract)
-    g.add_node("normalize", nodes.normalize)
-    g.add_node("answer_question", nodes.answer_question)
-    for name in STEP_NODES:
-        g.add_node(name, getattr(nodes, name))
-    g.add_node("respond", nodes.respond)
-    g.add_node("persona_guard", nodes.persona_guard)
+    for name in ("detect_language", "extract", "normalize", "answer_question", *STEP_NODES, "respond",
+                 "persona_guard"):
+        g.add_node(name, timed(name, getattr(nodes, name)))
 
     g.add_edge(START, "detect_language")
     g.add_edge("detect_language", "extract")

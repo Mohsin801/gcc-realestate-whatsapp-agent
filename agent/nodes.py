@@ -9,7 +9,13 @@ runner resets at the start of every turn.
 
 Every node is fail-safe: LLM errors fall back to rule-based extraction and template replies, and
 calendar/knowledge errors fall back to a handoff or deferral, so the lead always gets a sensible answer.
+
+Latency (spec DoD < 3 s): the runner puts a ``core.latency.Deadline`` in ``config["configurable"]["deadline"]``.
+LLM calls and the knowledge search are capped to the time left (keeping a reserve for the reply and the send);
+when too little is left they are skipped and the same fallbacks are used. Skipped steps are listed in
+``turn["budget_skips"]``. Calendar calls are not capped: a booking must never be cut off half-way.
 """
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -39,6 +45,7 @@ from agent.prompts import EXTRACTION_SYSTEM, Extraction, extraction_context, rep
 from agent.services import BookingResult, Knowledge, Scheduler
 from agent.state import COUNTRIES, INTENTS, TIMELINES, compute_is_qualified
 from core.config import Settings
+from core.latency import Deadline
 from core.timezones import lead_timezone
 
 log = logging.getLogger(__name__)
@@ -49,6 +56,14 @@ _FAQ_HINT = re.compile(
     r"\?|؟|\b(fee|fees|tax|vat|visa|residency|mortgage|law|legal|rules?|allowed|can foreigners|freehold|"
     r"transfer|registration|commission|how much|what is|what are)\b|رسوم|ضريب|فيزا|اقامه|قانون|نظام|تمويل|"
     r"رهن|يحق|مسموح|تملك|(^|\s)(كم|وش|ايش|شنو|هل)(\s|$)"
+)
+# A question about rules/fees/visas is a question even when it also names a purpose ("residency in Qatar?").
+_FAQ_TOPIC = re.compile(
+    r"\b(fee|fees|tax|vat|visa|residency|mortgage|law|legal|rules?|allowed|freehold|transfer|registration|"
+    r"commission|minimum|eligible)\b|رسوم|ضريب|فيزا|اقامه|قانون|نظام|تمويل|رهن|يحق|مسموح|تملك|الحد الادني"
+)
+_QUESTION_FORM = re.compile(
+    r"\?|؟|^\s*(what|how|can|could|is|are|do|does|which|when|where|who)\b|(^|\s)(كم|هل|وش|ايش|شنو|متي|كيف)(\s|$)"
 )
 _GREETING_HINT = re.compile(
     r"^\s*(hi|hello|hey|salam|good (morning|evening|afternoon)|السلام|سلام|هلا|مرحبا|صباح|مساء)\b"
@@ -72,7 +87,12 @@ def first_name(config: RunnableConfig | None) -> str | None:
     return name.split()[0] if name and name.strip() else None
 
 
-def _num(text: str) -> set[str]:
+def deadline_of(config: RunnableConfig | None) -> Deadline | None:
+    deadline = ((config or {}).get("configurable") or {}).get("deadline")
+    return deadline if isinstance(deadline, Deadline) else None
+
+
+def numbers_in(text: str) -> set[str]:
     """Numbers in a text, normalised: ASCII digits, thousands separators dropped ("2,000,000" -> "2000000")."""
     return {n.replace(",", "") for n in _NUMBER_RE.findall(to_western_digits(text))}
 
@@ -99,13 +119,28 @@ class AgentNodes:
     def _add_part(turn: dict, kind: str, **data) -> None:
         turn.setdefault("parts", []).append({"kind": kind, **data})
 
+    def _allow(self, config: RunnableConfig | None, turn: dict, step: str, timeout: float, *,
+               keep: float = 0.0) -> float | None:
+        """Seconds ``step`` may take within the turn's latency budget, or ``None`` to skip it (recorded in
+        ``turn["budget_skips"]``). Always keeps the send reserve, plus ``keep`` seconds for later steps."""
+        deadline = deadline_of(config)
+        if deadline is None:
+            return timeout
+        s = self.settings
+        allowed = deadline.allow(timeout, keep=s.latency_send_reserve_seconds + keep,
+                                 minimum=s.latency_min_call_seconds)
+        if allowed is None:
+            turn.setdefault("budget_skips", []).append(step)
+            log.info("latency budget: skipping %s", step, extra={"remaining_ms": int(deadline.remaining() * 1000)})
+        return allowed
+
     # ------------------------------------------------------------------ 1. language
     async def detect_language(self, state: dict) -> dict:
         lang = detect_language(last_human_text(state)) or state.get("language") or "en"
         return {"language": lang}
 
     # ------------------------------------------------------------------ 2. extraction (intent classifier)
-    async def extract(self, state: dict) -> dict:
+    async def extract(self, state: dict, config: RunnableConfig) -> dict:
         turn = self._turn(state)
         text = last_human_text(state)
         status = state.get("booking_status") or "NONE"
@@ -118,13 +153,18 @@ class AgentNodes:
         turn["offered"] = offered
 
         extraction, source = self._fast_path(text, status, offered), "fast_path"
+        timeout = None
         if extraction is None and self.llm is not None:
+            timeout = self._allow(config, turn, "extract", self.settings.llm_timeout_seconds,
+                                  keep=self.settings.latency_reply_reserve_seconds)
+        if timeout is not None:
             profile = {k: state.get(k) for k in QUALIFY_ORDER}
             tz = lead_timezone(state["phone_number"], self.settings.owner_timezone)
             now_text = datetime.now(ZoneInfo(tz)).strftime("%A %d %B %Y, %H:%M") + f" ({tz})"
             system = EXTRACTION_SYSTEM.replace("{context}", extraction_context(profile, status, offered, now_text))
             try:
-                extraction, source = await self.llm.extract(system, self._history(state), Extraction), "llm"
+                extraction, source = await self.llm.extract(system, self._history(state), Extraction,
+                                                            timeout=timeout), "llm"
             except Exception:  # noqa: BLE001 - LLM down/slow/invalid: rules take over
                 log.warning("LLM extraction failed, using rules", exc_info=True)
         if extraction is None:
@@ -168,6 +208,8 @@ class AgentNodes:
             kind = "SLOT_SELECTION"
         elif _FAQ_HINT.search(t) and not (intent or timeline or budget_text):
             kind = "FAQ_QUESTION"  # a country may come with the question ("DLD fees in Dubai?")
+        elif _FAQ_TOPIC.search(t) and _QUESTION_FORM.search(t) and not budget_text:
+            kind = "FAQ_QUESTION"  # "minimum property value for residency in Qatar?" (also names a purpose)
         elif country or intent or timeline or budget_text:
             kind = "PROVIDE_INFO"
         elif _GREETING_HINT.search(t):
@@ -232,18 +274,23 @@ class AgentNodes:
         return "offer_slots"
 
     # ------------------------------------------------------------------ 4. knowledge (RAG)
-    async def answer_question(self, state: dict) -> dict:
+    async def answer_question(self, state: dict, config: RunnableConfig) -> dict:
         turn = self._turn(state)
         ex = turn.get("extraction") or {}
         question = ex.get("question") or last_human_text(state)
         # The market the question is about: named in this message, else the lead's own target market.
         country = (turn.get("question_country") or ex.get("target_country") or match_country(question)
                    or state.get("target_country"))
-        try:
-            passages = await self.knowledge.search(question, country, state["language"])
-        except Exception:  # noqa: BLE001 - Qdrant/embeddings down or slow: defer, never guess
-            log.warning("knowledge search failed", exc_info=True)
-            passages = []
+        passages = []
+        timeout = self._allow(config, turn, "knowledge_search", self.settings.rag_timeout_seconds,
+                              keep=self.settings.latency_reply_reserve_seconds)
+        if timeout is not None:
+            try:
+                passages = await asyncio.wait_for(self.knowledge.search(question, country, state["language"]),
+                                                  timeout=timeout)
+            except Exception:  # noqa: BLE001 - Qdrant/embeddings down or slow: defer, never guess
+                log.warning("knowledge search failed", exc_info=True)
+                passages = []
         if passages:
             turn["knowledge"] = [p.text for p in passages]
             turn["sources"] = [
@@ -265,8 +312,14 @@ class AgentNodes:
             self._add_part(turn, "GREETING", name=first_name(config))
         if turn.get("provided"):
             self._add_part(turn, "ACK_INFO")
-        missing = next(f for f in QUALIFY_ORDER if state.get(f) is None)
-        self._add_part(turn, "ASK", field=missing, booking_requested=ex.get("message_intent") == "BOOKING_REQUEST")
+        missing = [f for f in QUALIFY_ORDER if state.get(f) is None]
+        self._add_part(turn, "ASK", field=missing[0],
+                       booking_requested=ex.get("message_intent") == "BOOKING_REQUEST")
+        if len(missing) == 1:  # one answer away from being offered slots: load availability now
+            try:
+                self.scheduler.prefetch()
+            except Exception:  # noqa: BLE001 - an optimisation only
+                log.warning("slot prefetch failed", exc_info=True)
         return {"turn": turn}
 
     async def _offer(self, state: dict, turn: dict, kind: str = "OFFER_SLOTS") -> dict:
@@ -443,9 +496,11 @@ class AgentNodes:
         system = reply_system_prompt(self.settings, language, task_text, self._profile(state, turn, config), knowledge)
         turn.update(task=task_text, fallback=" ".join(fallback), appendix=appendix, system=system)
         draft, source = None, "template"
-        if self.llm is not None:
+        timeout = (self._allow(config, turn, "reply", self.settings.llm_timeout_seconds)
+                   if self.llm is not None else None)
+        if timeout is not None:
             try:
-                draft, source = await self.llm.generate(system, self._history(state)), "llm"
+                draft, source = await self.llm.generate(system, self._history(state), timeout=timeout), "llm"
             except Exception:  # noqa: BLE001
                 log.warning("LLM reply failed, using template", exc_info=True)
         turn["draft"] = draft if draft else turn["fallback"]
@@ -464,36 +519,42 @@ class AgentNodes:
         kinds = {p["kind"] for p in turn.get("parts") or []}
         if turn.get("knowledge") or "DEFER" in kinds:
             # Every number must come from the knowledge passages, the task/profile or the lead's own message.
-            allowed = _num(last_human_text(state)) | _num(turn.get("system", ""))
-            if _num(draft) - allowed:
+            allowed = numbers_in(last_human_text(state)) | numbers_in(turn.get("system", ""))
+            if numbers_in(draft) - allowed:
                 problems.append("ungrounded_figure")
         if not turn.get("knowledge") and re.search(r"\d\s*%|٪|percent|بالمي[هة]", to_western_digits(draft).lower()):
             problems.append("ungrounded_figure")
         return problems
 
-    async def persona_guard(self, state: dict) -> dict:
+    async def persona_guard(self, state: dict, config: RunnableConfig) -> dict:
         turn = self._turn(state)
         s = self.settings
         draft = to_whatsapp_format(turn.get("draft") or "")
         problems = self._problems(draft, state, turn) if turn.get("draft_source") == "llm" else []
-        if problems and self.llm is not None:
+        source = turn.get("draft_source") or "template"
+        if problems:
             log.info("reply rejected by persona guard", extra={"problems": problems})
+        timeout = (self._allow(config, turn, "guard_retry", s.llm_timeout_seconds)
+                   if problems and self.llm is not None else None)
+        if timeout is not None:
             retry_system = (
                 turn["system"] + f"\n\nYour previous draft was rejected ({', '.join(problems)}): \"{draft}\". "
                 "Rewrite it so it follows every rule above, in fewer words."
             )
             try:
-                retry = to_whatsapp_format(await self.llm.generate(retry_system, self._history(state)))
+                retry = to_whatsapp_format(
+                    await self.llm.generate(retry_system, self._history(state), timeout=timeout)
+                )
                 problems = self._problems(retry, state, turn)
-                draft = retry
+                draft, source = retry, "llm_retry"
             except Exception:  # noqa: BLE001
                 log.warning("persona-guard regeneration failed", exc_info=True)
         if problems or not draft:
             if problems:
                 log.warning("persona guard fell back to template", extra={"problems": problems})
-            draft = turn["fallback"]
+            draft, source = turn["fallback"], "template"
         if s.persona_conceal_ai and reveals_ai(draft):  # templates are vetted; this is a last line of defence
-            draft = turn["fallback"]
+            draft, source = turn["fallback"], "template"
         appendix = turn.get("appendix")
         text_budget = max(s.reply_max_messages - (1 if appendix else 0), 1)
         bubbles = split_bubbles(draft, s.reply_max_chars, text_budget)
@@ -501,4 +562,5 @@ class AgentNodes:
             bubbles.append(appendix)
         turn["replies"] = bubbles
         turn["guard_problems"] = problems
+        turn["reply_source"] = source  # llm | llm_retry | template
         return {"messages": [AIMessage("\n\n".join(bubbles))], "turn": turn}
