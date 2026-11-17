@@ -11,7 +11,7 @@ from agent.graph import build_graph
 from agent.llm import LLMConfigError, build_llm
 from agent.runner import AgentService
 from agent.services import Knowledge, NullKnowledge
-from api import auth_google, health, whatsapp
+from api import admin, auth_google, health, whatsapp
 from core.config import Settings, get_settings
 from core.crypto import TokenCipher
 from core.logging import setup_logging
@@ -106,6 +106,7 @@ async def lifespan(app: FastAPI):
         checkpointer = await open_checkpointer(stack, settings)
         llm = open_llm(settings)
         scheduler = open_scheduler(settings, calendar_engine, app.state.redis)
+        app.state.checkpointer, app.state.scheduler = checkpointer, scheduler  # for POST /admin/reset (dev only)
         graph = build_graph(
             llm=llm, settings=settings, checkpointer=checkpointer, scheduler=scheduler, knowledge=knowledge,
         )
@@ -133,3 +134,4 @@ app = FastAPI(title="GCC Real Estate WhatsApp Agent", version="0.5.0", lifespan=
 app.include_router(health.router)
 app.include_router(whatsapp.router)
 app.include_router(auth_google.router)
+app.include_router(admin.router)

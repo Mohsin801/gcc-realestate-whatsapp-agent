@@ -57,3 +57,8 @@ class DemoScheduler:
 
     def prefetch(self) -> None:
         return None
+
+    def forget(self, phone: str) -> None:
+        """Drop the lead's offers and booking (dev reset, ``services/reset.py``)."""
+        self.offered.pop(phone, None)
+        self.booked.pop(phone, None)

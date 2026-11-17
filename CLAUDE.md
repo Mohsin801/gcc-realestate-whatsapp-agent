@@ -17,6 +17,7 @@ docker compose up --build                  # postgres:16, redis:8, qdrant, app o
 docker compose run --rm app pytest         # tests inside the container
 .\.venv\Scripts\python.exe scripts\eval_agent.py --no-llm   # conversation evaluation offline (live: drop --no-llm, add --kb)
 .\.venv\Scripts\python.exe scripts\latency_report.py        # production reply latency from chat_logs
+.\.venv\Scripts\python.exe scripts\reset_lead.py 9230...    # dev: wipe one number's session, lead, logs, bookings (POST /admin/reset, X-Admin-Token; --direct without the app)
 .\.venv\Scripts\python.exe -m alembic revision -m "msg"   # new migration (write it by hand; keep it in sync with db/models.py)
 ```
 Tests use `fakeredis` and `respx` mocks. pytest is set to `asyncio_mode = "auto"`, so async tests need no decorator. Unit tests must not need live Postgres, Redis, Qdrant, Meta or Google.

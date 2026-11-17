@@ -1,7 +1,7 @@
 """Data access for leads and chat logs."""
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +62,27 @@ async def update_lead_profile(session: AsyncSession, phone: str, **fields) -> Le
     if changed:
         await session.commit()
     return lead
+
+
+async def delete_lead(session: AsyncSession, phone: str) -> dict[str, int]:
+    """Delete a lead with its chat logs and bookings (dev reset). Children are deleted explicitly, so this does
+    not rely on the database enforcing ON DELETE CASCADE (SQLite in tests doesn't by default).
+
+    ``google_events`` counts confirmed bookings that have a Google Calendar event: those events are not
+    cancelled here and stay in the owner's calendar."""
+    lead = await get_lead(session, phone)
+    if lead is None:
+        return {"leads": 0, "chat_logs": 0, "bookings": 0, "google_events": 0}
+    google_events = await session.scalar(
+        select(func.count()).select_from(Booking).where(
+            Booking.lead_id == lead.id, Booking.status == "CONFIRMED", Booking.google_event_id.is_not(None)
+        )
+    )
+    bookings = await session.execute(delete(Booking).where(Booking.lead_id == lead.id))
+    logs = await session.execute(delete(ChatLog).where(ChatLog.lead_id == lead.id))
+    await session.execute(delete(Lead).where(Lead.id == lead.id))
+    await session.commit()
+    return {"leads": 1, "chat_logs": logs.rowcount, "bookings": bookings.rowcount, "google_events": google_events or 0}
 
 
 async def latest_booking(session: AsyncSession, lead_id: int) -> Booking | None:
