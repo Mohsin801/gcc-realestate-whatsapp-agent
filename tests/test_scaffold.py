@@ -44,3 +44,15 @@ def test_app_routes_registered():
     from main import app
 
     assert app.url_path_for("health") == "/health"
+
+
+async def test_calendar_demo_switches_scheduler(fake_redis):
+    from main import open_scheduler
+    from tools.calendar import CalendarScheduler
+    from tools.demo_calendar import DemoScheduler
+
+    assert Settings(_env_file=None).calendar_demo is False  # Google Calendar unless asked otherwise
+    demo = open_scheduler(Settings(_env_file=None, calendar_demo=True), engine=None, redis=fake_redis)
+    assert isinstance(demo, DemoScheduler)
+    real = open_scheduler(Settings(_env_file=None), engine=object(), redis=fake_redis)
+    assert isinstance(real, CalendarScheduler)

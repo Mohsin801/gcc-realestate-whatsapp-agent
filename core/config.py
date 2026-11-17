@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     google_api_timeout_seconds: float = 10.0
     # Protects /auth/google/start (connecting the owner's calendar). Empty = the endpoint is disabled.
     admin_token: str = ""
+    # Development only: offer fake slots from an empty calendar (tools/demo_calendar.py) instead of Google.
+    # Bookings are kept in memory with a placeholder Meet link; nothing is written to Google or `bookings`.
+    calendar_demo: bool = False
 
     # --- Owner / scheduling ---
     default_owner_id: str = "default"

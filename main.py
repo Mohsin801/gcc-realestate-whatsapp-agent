@@ -23,6 +23,7 @@ from services.whatsapp_client import WhatsAppClient
 from tools import calendar
 from tools.calendar import CalendarEngine, CalendarScheduler
 from tools.calendar_providers.google import GoogleOAuth
+from tools.demo_calendar import DemoScheduler
 from tools.rag import KnowledgeConfigError, build_knowledge
 
 log = logging.getLogger(__name__)
@@ -58,6 +59,14 @@ def open_knowledge(settings: Settings) -> tuple[Knowledge, object | None]:
     except KnowledgeConfigError:
         log.warning("Knowledge base disabled (no embedding model configured); questions will be deferred to the call")
         return NullKnowledge(), None
+
+
+def open_scheduler(settings: Settings, engine: CalendarEngine, redis):
+    """Google Calendar, or the in-memory demo calendar when CALENDAR_DEMO is on (development only)."""
+    if settings.calendar_demo:
+        log.warning("CALENDAR_DEMO is on: offering fake slots, bookings are not written to Google Calendar")
+        return DemoScheduler(settings)
+    return CalendarScheduler(engine, redis)
 
 
 def open_cipher(settings: Settings) -> TokenCipher | None:
@@ -96,7 +105,7 @@ async def lifespan(app: FastAPI):
             stack.push_async_callback(qdrant.close)
         checkpointer = await open_checkpointer(stack, settings)
         llm = open_llm(settings)
-        scheduler = CalendarScheduler(calendar_engine, app.state.redis)
+        scheduler = open_scheduler(settings, calendar_engine, app.state.redis)
         graph = build_graph(
             llm=llm, settings=settings, checkpointer=checkpointer, scheduler=scheduler, knowledge=knowledge,
         )

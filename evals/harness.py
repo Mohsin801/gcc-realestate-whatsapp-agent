@@ -34,7 +34,6 @@ import json
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -45,62 +44,14 @@ from agent.language import detect_language
 from agent.nodes import numbers_in
 from agent.persona_guard import reveals_ai
 from agent.runner import AgentService
-from agent.services import BookingResult, Knowledge
+from agent.services import Knowledge
 from core.config import Settings
 from core.latency import LatencyStats, percentile
-from core.timezones import lead_timezone
 from services.inbound import IncomingMessage
-from tools.scheduling import WorkingHours, candidate_slots, format_slot, parse_hhmm, pick_slots, to_iso
+from tools.demo_calendar import DemoScheduler  # noqa: F401 - re-exported for scripts/chat_cli.py
 
 CASES_FILE = Path(__file__).resolve().parent / "conversations.json"
 STATE_FIELDS = ("target_country", "intent", "budget_usd", "timeline", "is_qualified", "booking_status", "language")
-
-
-# ---------------------------------------------------------------------------------------------- demo calendar
-class DemoScheduler:
-    """An empty calendar inside the configured working hours: the real slot finder and label formatter, with
-    no Google account. Offers are kept per lead (phone), like ``CalendarScheduler``."""
-
-    def __init__(self, settings: Settings):
-        self.settings = settings
-        self.offered: dict[str, list[datetime]] = {}
-        self.booked: dict[str, datetime] = {}
-
-    def _labels(self, phone: str, slots: list[datetime], language: str) -> list[str]:
-        tz = lead_timezone(phone, self.settings.owner_timezone)
-        now = datetime.now(UTC)
-        return [format_slot(s, tz, language, now) for s in slots]
-
-    async def offer_slots(self, phone, country, language):
-        s = self.settings
-        hours = WorkingHours(s.owner_timezone, tuple(s.working_days), parse_hhmm(s.work_start), parse_hhmm(s.work_end))
-        duration = timedelta(minutes=s.slot_duration_minutes)
-        cands = candidate_slots(datetime.now(UTC), hours, duration, timedelta(minutes=s.min_notice_minutes),
-                                s.slot_search_days)
-        taken = {to_iso(t) for t in self.booked.values()}
-        self.offered[phone] = pick_slots(cands, [], taken, duration=duration, count=s.slot_count,
-                                         per_day=s.slots_per_day, owner_tz=s.owner_timezone)
-        return self._labels(phone, self.offered[phone], language)
-
-    async def offered_labels(self, phone, language):
-        return self._labels(phone, self.offered.get(phone, []), language)
-
-    async def book(self, phone, lead_name, choice, language):
-        slots = self.offered.get(phone, [])
-        if not 1 <= choice <= len(slots):
-            return BookingResult(ok=False, slot_taken=True)
-        slot = slots[choice - 1]
-        self.booked[phone] = slot
-        self.offered.pop(phone, None)
-        [label] = self._labels(phone, [slot], language)
-        return BookingResult(ok=True, slot_iso=to_iso(slot), slot_label=label,
-                             meet_link="https://meet.google.com/demo-demo-demo")
-
-    async def add_email(self, phone, email):
-        return phone in self.booked
-
-    def prefetch(self) -> None:
-        return None
 
 
 # ---------------------------------------------------------------------------------------------- results
