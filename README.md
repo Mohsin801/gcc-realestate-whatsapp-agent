@@ -25,7 +25,7 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
 | `knowledge_base/facts/` | verified GCC legal/tax facts, one JSON file per country, each with official sources and the date checked |
 | `services/` | Redis helpers, WhatsApp client, background message processor |
 | `evals/` | conversation evaluation: `conversations.json` (scripted EN/AR leads for all four markets) and `harness.py` (the checks and the report) |
-| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base; `eval_agent.py`: run the evaluation; `latency_report.py`: production reply latency from `chat_logs` |
+| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base; `eval_agent.py`: run the evaluation; `latency_report.py`: production reply latency from `chat_logs`; `reset_lead.py`: wipe one number's conversation (dev) |
 | `db/`, `migrations/` | SQLAlchemy models + Alembic |
 
 ## Quick start
@@ -33,6 +33,46 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
 2. `copy .env.example .env` and fill in the values (see below).
 3. `docker compose up --build`
 4. Check `http://localhost:8000/health`: all of `redis`, `postgres` and `qdrant` should say `ok`.
+
+## Live demo setup
+A real WhatsApp number, real Google Calendar bookings, the app on this machine. Run everything from PowerShell in the repo root. Values in `<…>` are placeholders: never paste real tokens into docs or chats.
+
+1. **Postgres and Redis in Docker; Qdrant embedded** (no Qdrant container; set `QDRANT_PATH=.qdrant` in `.env`):
+   ```
+   docker compose up -d postgres redis
+   .\.venv\Scripts\python.exe -m alembic upgrade head
+   .\.venv\Scripts\python.exe scripts\ingest_kb.py ingest      # first time only
+   ```
+2. **`.env`:**
+   - Fill in `TOKEN_ENCRYPTION_KEY` and `ADMIN_TOKEN` (the generator commands are in `.env.example`).
+   - Set `CALENDAR_DEMO=false` (`true` = fake slots, no Google).
+   - For `WHATSAPP_TOKEN`, use a **system-user token**. The token on Meta's API Setup page expires after 24 hours.
+3. **Public URL**, in its own terminal, kept open:
+   ```
+   ngrok http 8000
+   ```
+   Copy the `https://…` URL it prints into `PUBLIC_BASE_URL` in `.env`. You can use `cloudflared tunnel --url http://localhost:8000` or `ssh -R 80:localhost:8000 nokey@localhost.run` instead. A free tunnel URL changes on every restart, and each time you must redo steps 5 and 6 and restart the app.
+4. **App**, in its own terminal:
+   ```
+   .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
+   ```
+   - Settings are read once at startup, so **restart the app after every `.env` change**.
+   - Check that `<PUBLIC_BASE_URL>/health` answers through the tunnel.
+   - If the startup log shows `CALENDAR_DEMO is on`, demo mode is still active.
+5. **Meta webhook:**
+   1. Under Meta app → WhatsApp → Configuration, set the callback URL to `<PUBLIC_BASE_URL>/whatsapp/webhook`.
+   2. Enter `WHATSAPP_VERIFY_TOKEN` as the verify token, verify, and subscribe to `messages`.
+   3. Subscribe the app to your WhatsApp Business Account once. Without this, Meta's "Test" button works but real messages never arrive. This command reads the token from `.env` and prints only the result:
+      ```
+      .\.venv\Scripts\python.exe -c "import httpx; from core.config import get_settings as g; print(httpx.post('https://graph.facebook.com/v27.0/<WABA_ID>/subscribed_apps', headers={'Authorization': 'Bearer ' + g().whatsapp_token}).json())"
+      ```
+6. **Google sign-in** (once, and again whenever the tunnel URL changes):
+   1. In the Google OAuth client, add `<PUBLIC_BASE_URL>/auth/google/callback` as an authorised redirect URI.
+   2. The owner opens `<PUBLIC_BASE_URL>/auth/google/start?token=<ADMIN_TOKEN>` and approves.
+7. **Between demos**, wipe a number's session, lead, chat logs and bookings, so the next "hi" starts fresh. This only works when `APP_ENV=development`. It doesn't cancel Google Calendar events already created, so delete them by hand.
+   ```
+   .\.venv\Scripts\python.exe scripts\reset_lead.py <phone with country code, e.g. 9715XXXXXXXX>
+   ```
 
 ## How the agent works (Phase 2)
 Each WhatsApp message runs one turn of a LangGraph state machine (`agent/graph.py`):
