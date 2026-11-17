@@ -14,18 +14,47 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
                                                              & properties)
 ```
 
+## Architecture
+**Request path:** Meta WhatsApp → `POST /whatsapp/webhook` (`api/whatsapp.py`) → FastAPI background task (`services/processor.py`) → LangGraph agent (`agent/`) → reply through the Meta Graph API (`services/whatsapp_client.py`).
+
+- **Webhook:**
+  - Checks Meta's `X-Hub-Signature-256` signature.
+  - Parses the message and drops duplicates (`SET NX` on the WhatsApp message id).
+  - Queues the work and returns 200 well inside Meta's 200 ms limit.
+- **Background processor:**
+  1. Takes a per-phone lock, so one lead's messages are handled in order.
+  2. Marks the message read and shows the typing indicator.
+  3. Saves the lead and the inbound message.
+  4. Runs one agent turn with a hard timeout.
+  5. Sends the reply bubbles and logs them with their latency.
+
+  It never raises: on any failure the lead gets a safe template reply.
+- **Agent:** a LangGraph state machine, described below. LLM calls, knowledge search and calendar access sit behind small interfaces (`agent/services.py`, `agent/llm.py`), so providers can be swapped and tests run offline.
+- **Storage:**
+
+  | Store | What it holds |
+  |---|---|
+  | Redis | session state (the LangGraph checkpointer, one thread per phone number), message-id dedup keys, per-phone locks, offered slots |
+  | PostgreSQL | the durable records: `leads`, `chat_logs` (with reply latency), `bookings` (Google event id, Meet link), `owners` (encrypted Google refresh token) |
+  | Qdrant | the GCC legal/tax knowledge base and the owner's listings |
+  | Google Calendar | live availability (freeBusy) and the booked events with Google Meet links, through the owner's own OAuth connection |
+- **Reliability:**
+  - Every LLM call is time-boxed by a 3-second reply budget that starts at webhook receipt.
+  - When time runs short, or the LLM fails, rule-based extraction and vetted templates answer instead.
+  - Legal and tax figures come only from retrieved, officially sourced facts; otherwise the agent defers to the call.
+
 ## Project layout
 | Path | Purpose |
 |---|---|
 | `main.py` | FastAPI app + lifespan (Redis, DB, LLM, LangGraph checkpointer) |
 | `core/` | settings (`config.py`), JSON logging |
-| `api/` | `whatsapp.py` webhook (spec §5), `health.py`, `auth_google.py` (owner calendar connection) |
+| `api/` | `whatsapp.py` webhook (spec §5), `health.py`, `auth_google.py` (owner calendar connection), `admin.py` (dev-only lead reset) |
 | `agent/` | `state.py` (spec §3), LangGraph graph, nodes, prompts |
-| `tools/` | `calendar.py` (spec §4) + `scheduling.py` (slots, labels) + `calendar_providers/` (Google); `rag.py` (Qdrant knowledge base) |
+| `tools/` | `calendar.py` (spec §4) + `scheduling.py` (slots, labels) + `calendar_providers/` (Google) + `demo_calendar.py` (fake slots, `CALENDAR_DEMO`); `rag.py` (Qdrant knowledge base) |
 | `knowledge_base/facts/` | verified GCC legal/tax facts, one JSON file per country, each with official sources and the date checked |
-| `services/` | Redis helpers, WhatsApp client, background message processor |
+| `services/` | Redis helpers, WhatsApp client, background message processor, startup warm-up, lead reset |
 | `evals/` | conversation evaluation: `conversations.json` (scripted EN/AR leads for all four markets) and `harness.py` (the checks and the report) |
-| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base; `eval_agent.py`: run the evaluation; `latency_report.py`: production reply latency from `chat_logs`; `reset_lead.py`: wipe one number's conversation (dev) |
+| `scripts/` | `chat_cli.py`: chat with the agent in the terminal; `ingest_kb.py`: validate, ingest and search the knowledge base; `calibrate_kb.py`: calibrate the retrieval score threshold; `eval_agent.py`: run the evaluation; `latency_report.py`: production reply latency from `chat_logs`; `reset_lead.py`: wipe one number's conversation (dev) |
 | `db/`, `migrations/` | SQLAlchemy models + Alembic |
 
 ## Quick start
@@ -37,8 +66,9 @@ WhatsApp (EN/AR) ──► POST /whatsapp/webhook ──► FastAPI ──► La
 ## Live demo setup
 A real WhatsApp number, real Google Calendar bookings, the app on this machine. Run everything from PowerShell in the repo root. Values in `<…>` are placeholders: never paste real tokens into docs or chats.
 
-1. **Postgres and Redis in Docker; Qdrant embedded** (no Qdrant container; set `QDRANT_PATH=.qdrant` in `.env`):
+1. **Python environment, then Postgres and Redis in Docker with Qdrant embedded** (no Qdrant container; set `QDRANT_PATH=.qdrant` in `.env`, after `copy .env.example .env`):
    ```
+   python -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
    docker compose up -d postgres redis
    .\.venv\Scripts\python.exe -m alembic upgrade head
    .\.venv\Scripts\python.exe scripts\ingest_kb.py ingest      # first time only
